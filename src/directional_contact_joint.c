@@ -62,6 +62,7 @@ b3JointId b3CreateDirectionalContactJoint( b3WorldId worldId, const b3Directiona
 	joint->minLength = def->minLength;
 	joint->maxLength = def->maxLength;
 	joint->preloadLength = def->preloadLength;
+	joint->restLength = def->maxLength + def->preloadLength;
 	joint->stiffness = def->stiffness;
 	joint->damping = def->damping;
 	joint->invSpinInertia = def->spinInertia > 0.0f ? 1.0f / def->spinInertia : 0.0f;
@@ -107,6 +108,7 @@ void b3DirectionalContactJoint_SetInput( b3JointId jointId, const b3DirectionalC
 	dc->brakeTorque = input->brakeTorque;
 	dc->longitudinalFriction = input->longitudinalFriction;
 	dc->lateralFriction = input->lateralFriction;
+	dc->normalForce = input->normalForce;
 	if ( input->hasContact )
 	{
 		b3WorldTransform transformB = b3GetBodyTransform( world, base->bodyIdB );
@@ -122,6 +124,29 @@ void b3DirectionalContactJoint_SetInput( b3JointId jointId, const b3DirectionalC
 		dc->longitudinalImpulse = 0.0f;
 		dc->lateralImpulse = 0.0f;
 	}
+}
+
+void b3DirectionalContactJoint_SetSpring( b3JointId jointId, float stiffness, float damping, float restLength )
+{
+	B3_ASSERT( b3IsValidFloat( stiffness ) && stiffness >= 0.0f );
+	B3_ASSERT( b3IsValidFloat( damping ) && damping >= 0.0f );
+	b3DirectionalContactJoint* joint = b3GetDirectionalContactJoint( jointId );
+	joint->stiffness = stiffness;
+	joint->damping = damping;
+	joint->restLength = restLength;
+}
+
+b3Softness b3DirectionalSpringSoftness( const b3DirectionalContactJoint* joint, float h )
+{
+	float k = joint->stiffness / joint->springCos;
+	float c = joint->damping / joint->springCos;
+	if ( k > 0.0f && joint->normalMass > 0.0f )
+	{
+		float omega = sqrtf( k / joint->normalMass );
+		float zeta = 0.5f * c / sqrtf( k * joint->normalMass );
+		return b3MakeSoft( omega / ( 2.0f * B3_PI ), zeta, h );
+	}
+	return (b3Softness){ 0.0f, 0.0f, 0.0f };
 }
 
 void b3DirectionalContactJoint_ClearContact( b3JointId jointId )
@@ -307,19 +332,8 @@ void b3PrepareDirectionalContactJoint( b3JointSim* base, b3StepContext* context 
 
 	// Spring along the contact normal, stiffness and damping divided by the angle between the suspension and
 	// the normal so the component along the suspension is the authored spring.
-	float cosAngle = b3MaxFloat( 0.1f, -b3Dot( suspensionDir, n ) );
-	float k = joint->stiffness / cosAngle;
-	float c = joint->damping / cosAngle;
-	if ( k > 0.0f && joint->normalMass > 0.0f )
-	{
-		float omega = sqrtf( k / joint->normalMass );
-		float zeta = 0.5f * c / sqrtf( k * joint->normalMass );
-		joint->springSoftness = b3MakeSoft( omega / ( 2.0f * B3_PI ), zeta, context->h );
-	}
-	else
-	{
-		joint->springSoftness = (b3Softness){ 0.0f, 0.0f, 0.0f };
-	}
+	joint->springCos = b3MaxFloat( 0.1f, -b3Dot( suspensionDir, n ) );
+	joint->springSoftness = b3DirectionalSpringSoftness( joint, context->h );
 
 	if ( context->enableWarmStarting == false )
 	{
@@ -408,7 +422,7 @@ void b3SolveDirectionalContactJoint( b3JointSim* base, b3StepContext* context, b
 	// Suspension spring. This is a real spring and is applied during relax as well.
 	if ( joint->springSoftness.massScale > 0.0f )
 	{
-		float C = length - ( joint->maxLength + joint->preloadLength );
+		float C = length - joint->restLength;
 		float cdot = b3Dot( f.n, b3Sub( vA, vB ) ) + b3Dot( snA, wA ) - b3Dot( snB, wB );
 		float impulse = -joint->springSoftness.massScale * joint->normalMass * ( cdot + joint->springSoftness.biasRate * C ) -
 						joint->springSoftness.impulseScale * joint->springImpulse;
@@ -454,7 +468,7 @@ void b3SolveDirectionalContactJoint( b3JointSim* base, b3StepContext* context, b
 		wB = b3MulSub( wB, impulse, b3MulMV( iB, snB ) );
 	}
 
-	float normalImpulse = joint->springImpulse + joint->bumpImpulse;
+	float normalImpulse = joint->springImpulse + joint->bumpImpulse + joint->normalForce * context->h;
 
 	// Longitudinal row and brake row, solved as one block on the spin degree of freedom.
 	{

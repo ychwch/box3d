@@ -112,6 +112,7 @@ typedef struct b3DirectionalContactInput
 	float lateralFriction;
 	float steerAngle;
 	float brakeTorque;
+	float normalForce; // N, a normal load carried outside the joint (an explicit soil force); adds to the friction bound
 } b3DirectionalContactInput;
 
 B3_API b3DirectionalContactJointDef b3DefaultDirectionalContactJointDef( void );
@@ -147,6 +148,25 @@ B3_API void b3DirectionalContactJoint_SetSpin( b3JointId jointId, float spin );
 B3_API float b3DirectionalContactJoint_GetSpin( b3JointId jointId );
 
 B3_API b3DirectionalContactState b3DirectionalContactJoint_GetState( b3JointId jointId );
+
+/// Suspension spring for the coming step: stiffness (N/m), damping (N s/m) and rest length (m, hard point to the
+/// contact point minus the radius). Stiffness 0 removes the spring row; the bump stop stays.
+B3_API void b3DirectionalContactJoint_SetSpring( b3JointId jointId, float stiffness, float damping, float restLength );
+
+/// Current center of mass and rotation of a body during the sub-step (start of step plus the sub-step deltas).
+/// Returns false for a body that is not awake (static and sleeping bodies return their stored pose).
+B3_API bool b3SubStep_GetBodyPose( const b3SubStepContext* context, b3BodyId bodyId, b3Pos* center, b3Quat* rotation );
+
+/// Current suspension length of a directional contact joint, measured to the contact point along the contact
+/// normal as the solver measures it, and its normal impulse (spring plus bump stop) of the previous sub-step.
+B3_API void b3SubStep_GetSuspension( const b3SubStepContext* context, b3JointId jointId, float* length, float* normalImpulse );
+
+/// Spring of the suspension row for the coming sub-step (same units as b3DirectionalContactJoint_SetSpring).
+B3_API void b3SubStep_SetSpring( b3SubStepContext* context, b3JointId jointId, float stiffness, float damping, float restLength );
+
+/// Friction coefficients and external normal force (N) for the coming sub-step.
+B3_API void b3SubStep_SetFriction( b3SubStepContext* context, b3JointId jointId, float longitudinal, float lateral );
+B3_API void b3SubStep_SetNormalForce( b3SubStepContext* context, b3JointId jointId, float normalForce );
 
 #ifdef __cplusplus
 }

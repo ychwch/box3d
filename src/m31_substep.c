@@ -125,3 +125,67 @@ void b3SubStep_GetSpinAndImpulse( const b3SubStepContext* context, b3JointId joi
 	*spin = joint->spin;
 	*impulse = joint->hasContact ? joint->longitudinalImpulse : 0.0f;
 }
+
+bool b3SubStep_GetBodyPose( const b3SubStepContext* context, b3BodyId bodyId, b3Pos* center, b3Quat* rotation )
+{
+	b3World* world = context->step->world;
+	b3Body* body = b3GetBodyFullId( world, bodyId );
+	if ( body->setIndex == b3_awakeSet )
+	{
+		b3BodyState* state = context->step->states + body->localIndex;
+		b3BodySim* sim = context->step->sims + body->localIndex;
+		*center = b3OffsetPos( sim->center, state->deltaPosition );
+		*rotation = b3NormalizeQuat( b3MulQuat( state->deltaRotation, sim->transform.q ) );
+		return true;
+	}
+
+	b3BodySim* sim = b3GetBodySim( world, body );
+	*center = sim->center;
+	*rotation = sim->transform.q;
+	return false;
+}
+
+void b3SubStep_GetSuspension( const b3SubStepContext* context, b3JointId jointId, float* length, float* normalImpulse )
+{
+	b3DirectionalContactJoint* joint = b3SubStepJoint( context, jointId );
+	if ( joint->hasContact == false )
+	{
+		*length = joint->maxLength;
+		*normalImpulse = 0.0f;
+		return;
+	}
+
+	b3BodyState dummyState = b3_identityBodyState;
+	const b3BodyState* stateA = joint->indexA == B3_NULL_INDEX ? &dummyState : context->step->states + joint->indexA;
+	const b3BodyState* stateB = joint->indexB == B3_NULL_INDEX ? &dummyState : context->step->states + joint->indexB;
+	b3Vec3 rA = b3RotateVector( stateA->deltaRotation, joint->rA );
+	b3Vec3 rB = b3RotateVector( stateB->deltaRotation, joint->rB );
+	b3Vec3 n = b3RotateVector( stateB->deltaRotation, joint->normal );
+	b3Vec3 d = b3Add( b3Add( b3Sub( stateB->deltaPosition, stateA->deltaPosition ), joint->deltaCenter ), b3Sub( rB, rA ) );
+	*length = joint->length0 - b3Dot( d, n );
+	*normalImpulse = joint->springImpulse + joint->bumpImpulse;
+}
+
+void b3SubStep_SetSpring( b3SubStepContext* context, b3JointId jointId, float stiffness, float damping, float restLength )
+{
+	b3DirectionalContactJoint* joint = b3SubStepJoint( context, jointId );
+	joint->stiffness = stiffness;
+	joint->damping = damping;
+	joint->restLength = restLength;
+	if ( joint->hasContact )
+	{
+		joint->springSoftness = b3DirectionalSpringSoftness( joint, context->step->h );
+	}
+}
+
+void b3SubStep_SetFriction( b3SubStepContext* context, b3JointId jointId, float longitudinal, float lateral )
+{
+	b3DirectionalContactJoint* joint = b3SubStepJoint( context, jointId );
+	joint->longitudinalFriction = longitudinal;
+	joint->lateralFriction = lateral;
+}
+
+void b3SubStep_SetNormalForce( b3SubStepContext* context, b3JointId jointId, float normalForce )
+{
+	b3SubStepJoint( context, jointId )->normalForce = normalForce;
+}

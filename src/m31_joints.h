@@ -28,6 +28,8 @@ typedef struct b3DirectionalContactJoint
 	float brakeTorque;
 	float longitudinalFriction;
 	float lateralFriction;
+	float normalForce;
+	float restLength;
 	b3Vec3 localPointB;
 	b3Vec3 localNormalB;
 
@@ -53,6 +55,7 @@ typedef struct b3DirectionalContactJoint
 	float lateralMass;
 	float longitudinalMassLocked; // bodies only (spin held by the brake)
 	float longitudinalMassFree;	  // bodies plus spin
+	float springCos;
 	b3Softness springSoftness;
 
 	bool hasContact;
@@ -63,3 +66,4 @@ void b3WarmStartDirectionalContactJoint( b3JointSim* base, b3StepContext* contex
 void b3SolveDirectionalContactJoint( b3JointSim* base, b3StepContext* context, bool useBias );
 
 void b3RunSubStepCallback( b3StepContext* context, int subStepIndex );
+b3Softness b3DirectionalSpringSoftness( const b3DirectionalContactJoint* joint, float h );
