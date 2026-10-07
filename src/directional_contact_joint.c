@@ -95,6 +95,35 @@ void b3DirectionalContactJoint_SetContact( b3JointId jointId, b3Pos point, b3Vec
 	dc->hasContact = true;
 }
 
+void b3DirectionalContactJoint_SetInput( b3JointId jointId, const b3DirectionalContactInput* input )
+{
+	b3World* world = b3GetWorld( jointId.world0 );
+	B3_ASSERT( world->locked == false );
+	b3Joint* joint = b3GetJointFullId( world, jointId );
+	b3JointSim* base = b3GetJointSim( world, joint );
+	B3_ASSERT( base->type == b3_directionalContactJoint );
+	b3DirectionalContactJoint* dc = &base->directionalContactJoint;
+	dc->steerAngle = input->steerAngle;
+	dc->brakeTorque = input->brakeTorque;
+	dc->longitudinalFriction = input->longitudinalFriction;
+	dc->lateralFriction = input->lateralFriction;
+	if ( input->hasContact )
+	{
+		b3WorldTransform transformB = b3GetBodyTransform( world, base->bodyIdB );
+		dc->localPointB = b3InvTransformWorldPoint( transformB, input->point );
+		dc->localNormalB = b3InvRotateVector( transformB.q, input->normal );
+		dc->hasContact = true;
+	}
+	else
+	{
+		dc->hasContact = false;
+		dc->springImpulse = 0.0f;
+		dc->bumpImpulse = 0.0f;
+		dc->longitudinalImpulse = 0.0f;
+		dc->lateralImpulse = 0.0f;
+	}
+}
+
 void b3DirectionalContactJoint_ClearContact( b3JointId jointId )
 {
 	b3DirectionalContactJoint* joint = b3GetDirectionalContactJoint( jointId );

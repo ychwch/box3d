@@ -118,3 +118,10 @@ bool b3SubStep_HasContact( const b3SubStepContext* context, b3JointId jointId )
 {
 	return b3SubStepJoint( context, jointId )->hasContact;
 }
+
+void b3SubStep_GetSpinAndImpulse( const b3SubStepContext* context, b3JointId jointId, float* spin, float* impulse )
+{
+	b3DirectionalContactJoint* joint = b3SubStepJoint( context, jointId );
+	*spin = joint->spin;
+	*impulse = joint->hasContact ? joint->longitudinalImpulse : 0.0f;
+}

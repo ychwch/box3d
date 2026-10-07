@@ -47,6 +47,9 @@ B3_API void b3SubStep_SetSpin( b3SubStepContext* context, b3JointId jointId, flo
 /// Longitudinal impulse (N s) the joint applied in the previous sub-step; positive pushes the carrier forward.
 B3_API float b3SubStep_GetLongitudinalImpulse( const b3SubStepContext* context, b3JointId jointId );
 
+/// Spin and longitudinal impulse in one lookup; the impulse is 0 without contact.
+B3_API void b3SubStep_GetSpinAndImpulse( const b3SubStepContext* context, b3JointId jointId, float* spin, float* impulse );
+
 /// True when the joint has a ground contact this step.
 B3_API bool b3SubStep_HasContact( const b3SubStepContext* context, b3JointId jointId );
 
@@ -99,7 +102,22 @@ typedef struct b3DirectionalContactState
 	b3Vec3 normal;
 } b3DirectionalContactState;
 
+/// Everything the probe and the vehicle layer set for one step, in one call.
+typedef struct b3DirectionalContactInput
+{
+	bool hasContact;
+	b3Pos point;   // world, on body B
+	b3Vec3 normal; // world, out of the ground
+	float longitudinalFriction;
+	float lateralFriction;
+	float steerAngle;
+	float brakeTorque;
+} b3DirectionalContactInput;
+
 B3_API b3DirectionalContactJointDef b3DefaultDirectionalContactJointDef( void );
+
+/// Set the step input; same effect as SetContact or ClearContact, SetFriction, SetSteerAngle and SetBrakeTorque.
+B3_API void b3DirectionalContactJoint_SetInput( b3JointId jointId, const b3DirectionalContactInput* input );
 
 /// Create a directional contact joint. Body B may be any body (a static anchor works when the ground
 /// is static); use b3DirectionalContactJoint_SetGround to re-target it.
