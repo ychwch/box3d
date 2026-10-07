@@ -151,13 +151,6 @@ b3JointId b3DirectionalContactJoint_SetGround( b3JointId jointId, b3BodyId groun
 		return jointId;
 	}
 
-	b3Body* oldBody = b3Array_Get( world->bodies, oldGround );
-	if ( oldBody->type == b3_staticBody && newBody->type == b3_staticBody )
-	{
-		// Static bodies carry no solver state; the contact point is stored through B's fixed transform.
-		return jointId;
-	}
-
 	b3JointSim* base = b3GetJointSim( world, joint );
 	b3DirectionalContactJoint saved = base->directionalContactJoint;
 
