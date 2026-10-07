@@ -215,9 +215,14 @@ void b3SolveParallelJoint( b3JointSim* base, b3StepContext* context )
 			-massScale * sol.y - impulseScale * oldImpulse.y,
 		};
 		joint->perpImpulse = (b3Vec2){ oldImpulse.x + deltaImpulse.x, oldImpulse.y + deltaImpulse.y };
-		if ( b3LengthSquared2( joint->perpImpulse ) > maxImpulse * maxImpulse )
+
+		// Bound the angular impulse the joint applies, not the 2-vector: the perpendicular axes have length 0.5
+		// near alignment, so bounding the 2-vector delivered half of maxTorque.
+		b3Vec3 totalAngular = b3Blend2( joint->perpImpulse.x, perpAxisX, joint->perpImpulse.y, perpAxisY );
+		float angularLength = b3Length( totalAngular );
+		if ( angularLength > maxImpulse )
 		{
-			float s = maxImpulse / b3Length2( joint->perpImpulse );
+			float s = maxImpulse / angularLength;
 			joint->perpImpulse = (b3Vec2){ s * joint->perpImpulse.x, s * joint->perpImpulse.y };
 		}
 
