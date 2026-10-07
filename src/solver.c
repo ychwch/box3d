@@ -1263,6 +1263,11 @@ static void b3SolverTask( void* taskContext )
 
 			profile->integrateVelocities += b3GetMillisecondsAndReset( &ticks );
 
+			if ( context->world->subStepFcn != NULL )
+			{
+				b3RunSubStepCallback( context, subStepIndex );
+			}
+
 			// Warm start constraints
 			b3WarmStartJoints_Overflow( context );
 			b3WarmStartContacts_Overflow( context );

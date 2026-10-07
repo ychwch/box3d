@@ -624,6 +624,7 @@ typedef enum b3JointType
 	b3_sphericalJoint,
 	b3_weldJoint,
 	b3_wheelJoint,
+	b3_directionalContactJoint,
 } b3JointType;
 
 /// Base joint definition used by all joint types. The local frames are measured from the

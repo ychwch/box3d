@@ -189,13 +189,7 @@ static void b3DestroyContactsBetweenBodies( b3World* world, b3Body* bodyA, b3Bod
 	b3ValidateSolverSets( world );
 }
 
-typedef struct b3JointPair
-{
-	b3Joint* joint;
-	b3JointSim* jointSim;
-} b3JointPair;
-
-static b3JointPair b3CreateJoint( b3World* world, const b3JointDef* def, b3JointType type )
+b3JointPair b3CreateJoint( b3World* world, const b3JointDef* def, b3JointType type )
 {
 	B3_ASSERT( b3IsValidTransform( def->localFrameA ) );
 	B3_ASSERT( b3IsValidTransform( def->localFrameB ) );
@@ -1161,6 +1155,9 @@ static b3Vec3 b3GetJointConstraintForce( b3World* world, b3Joint* joint )
 		case b3_wheelJoint:
 			return b3GetWheelJointForce( world, base );
 
+		case b3_directionalContactJoint:
+			return b3Vec3_zero;
+
 		default:
 			B3_ASSERT( false );
 			return b3Vec3_zero;
@@ -1199,6 +1196,9 @@ static b3Vec3 b3GetJointConstraintTorque( b3World* world, b3Joint* joint )
 
 		case b3_wheelJoint:
 			return b3GetWheelJointTorque( world, base );
+
+		case b3_directionalContactJoint:
+			return b3Vec3_zero;
 
 		default:
 			B3_ASSERT( false );
@@ -1295,6 +1295,9 @@ float b3Joint_GetLinearSeparation( b3JointId jointId )
 
 			return sqrtf( perpendicularSeparation * perpendicularSeparation + limitSeparation * limitSeparation );
 		}
+
+		case b3_directionalContactJoint:
+			return 0.0f;
 
 		case b3_revoluteJoint:
 			return b3Length( dp );
@@ -1434,6 +1437,9 @@ float b3Joint_GetAngularSeparation( b3JointId jointId )
 			B3_ASSERT( false );
 			return 0.0f;
 
+		case b3_directionalContactJoint:
+			return 0.0f;
+
 		default:
 			B3_ASSERT( false );
 			return 0.0f;
@@ -1522,6 +1528,10 @@ void b3PrepareJoint( b3JointSim* joint, b3StepContext* context )
 			b3PrepareWheelJoint( joint, context );
 			break;
 
+		case b3_directionalContactJoint:
+			b3PrepareDirectionalContactJoint( joint, context );
+			break;
+
 		default:
 			B3_ASSERT( false );
 	}
@@ -1564,6 +1574,10 @@ void b3WarmStartJoint( b3JointSim* joint, b3StepContext* context )
 
 		case b3_wheelJoint:
 			b3WarmStartWheelJoint( joint, context );
+			break;
+
+		case b3_directionalContactJoint:
+			b3WarmStartDirectionalContactJoint( joint, context );
 			break;
 
 		default:
@@ -1610,6 +1624,10 @@ void b3SolveJoint( b3JointSim* joint, b3StepContext* context, bool useBias )
 
 		case b3_wheelJoint:
 			b3SolveWheelJoint( joint, context, useBias );
+			break;
+
+		case b3_directionalContactJoint:
+			b3SolveDirectionalContactJoint( joint, context, useBias );
 			break;
 
 		default:

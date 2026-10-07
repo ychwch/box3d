@@ -124,6 +124,9 @@ b3DeclareArray( b3TaskContext );
 
 // The world struct manages all physics entities, dynamic simulation,  and asynchronous queries.
 // The world also contains efficient memory management facilities.
+typedef struct b3SubStepContext b3SubStepContext;
+typedef void b3SubStepFcn( b3SubStepContext* context, void* userContext );
+
 typedef struct b3World
 {
 	b3Stack stack;
@@ -260,6 +263,9 @@ typedef struct b3World
 
 	b3CustomFilterFcn* customFilterFcn;
 	void* customFilterContext;
+
+	b3SubStepFcn* subStepFcn;
+	void* subStepContext;
 
 	int workerCount;
 	int simdWidth;

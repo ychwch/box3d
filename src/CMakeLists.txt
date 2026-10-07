@@ -24,6 +24,7 @@ set(BOX3D_SOURCE_FILES
 	contact_solver.h
 	contact.c
 	contact.h
+	directional_contact_joint.c
 	container.h
 	convex_manifold_wide.inl
 	convex_manifold.c
@@ -43,6 +44,8 @@ set(BOX3D_SOURCE_FILES
 	island.h
 	joint.c
 	joint.h
+	m31_joints.h
+	m31_substep.c
 	manifold.c
 	manifold.h
 	math_functions.c
@@ -110,6 +113,7 @@ set(BOX3D_INCLUDE_FILES
 	../include/box3d/config.h
 	../include/box3d/constants.h
 	../include/box3d/id.h
+	../include/box3d/m31.h
 	../include/box3d/math_functions.h
 	../include/box3d/types.h
 )

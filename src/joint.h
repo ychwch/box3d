@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "m31_joints.h"
 #include "math_internal.h"
 #include "solver.h"
 
@@ -342,9 +343,17 @@ typedef struct b3JointSim
 		b3PrismaticJoint prismaticJoint;
 		b3WeldJoint weldJoint;
 		b3WheelJoint wheelJoint;
+		b3DirectionalContactJoint directionalContactJoint;
 	};
 } b3JointSim;
 
+typedef struct b3JointPair
+{
+	b3Joint* joint;
+	b3JointSim* jointSim;
+} b3JointPair;
+
+b3JointPair b3CreateJoint( b3World* world, const b3JointDef* def, b3JointType type );
 void b3DestroyJointInternal( b3World* world, b3Joint* joint, bool wakeBodies );
 
 b3Joint* b3GetJointFullId( b3World* world, b3JointId jointId );
