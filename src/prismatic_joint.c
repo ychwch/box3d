@@ -270,10 +270,11 @@ b3Vec3 b3GetPrismaticJointForce( b3World* world, b3JointSim* base )
 	b3PrismaticJoint* joint = &base->prismaticJoint;
 
 	// impulse in joint space
+	// the joint axis is frame x, the perpendicular rows frame y and z (as in the solver)
 	b3Vec3 impulse = {
+		joint->motorImpulse + joint->lowerImpulse - joint->upperImpulse + joint->springImpulse,
 		joint->perpImpulse.x,
 		joint->perpImpulse.y,
-		joint->motorImpulse + joint->lowerImpulse + joint->upperImpulse + joint->springImpulse,
 	};
 
 	// convert impulse to force
