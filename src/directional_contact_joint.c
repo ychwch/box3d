@@ -91,7 +91,7 @@ void b3DirectionalContactJoint_SetContact( b3JointId jointId, b3Pos point, b3Vec
 
 	b3WorldTransform transformB = b3GetBodyTransform( world, base->bodyIdB );
 	b3DirectionalContactJoint* dc = &base->directionalContactJoint;
-	dc->localPointB = b3InvTransformWorldPoint( transformB, point );
+	base->localFrameB.p = b3InvTransformWorldPoint( transformB, point );
 	dc->localNormalB = b3InvRotateVector( transformB.q, normal );
 	dc->hasContact = true;
 }
@@ -112,7 +112,7 @@ void b3DirectionalContactJoint_SetInput( b3JointId jointId, const b3DirectionalC
 	if ( input->hasContact )
 	{
 		b3WorldTransform transformB = b3GetBodyTransform( world, base->bodyIdB );
-		dc->localPointB = b3InvTransformWorldPoint( transformB, input->point );
+		base->localFrameB.p = b3InvTransformWorldPoint( transformB, input->point );
 		dc->localNormalB = b3InvRotateVector( transformB.q, input->normal );
 		dc->hasContact = true;
 	}
@@ -239,6 +239,29 @@ float b3DirectionalContactJoint_GetSpin( b3JointId jointId )
 	return b3GetDirectionalContactJoint( jointId )->spin;
 }
 
+// The impulse the last sub-step applied to the carrier, along the axes of the last prepare.
+static b3Vec3 b3DirectionalContactImpulse( const b3DirectionalContactJoint* joint )
+{
+	if ( joint->hasContact == false )
+	{
+		return b3Vec3_zero;
+	}
+	b3Vec3 P = b3MulSV( joint->springImpulse + joint->bumpImpulse, joint->normal );
+	P = b3MulAdd( P, joint->longitudinalImpulse, joint->longitudinalAxis );
+	return b3MulAdd( P, joint->lateralImpulse, joint->lateralAxis );
+}
+
+// As every joint reports: the force on body B, here the ground, at its frame origin, the contact point.
+b3Vec3 b3GetDirectionalContactJointForce( b3World* world, b3JointSim* base )
+{
+	return b3MulSV( -world->inv_h, b3DirectionalContactImpulse( &base->directionalContactJoint ) );
+}
+
+float b3GetDirectionalContactJointImpulse( const b3JointSim* base )
+{
+	return b3Length( b3DirectionalContactImpulse( &base->directionalContactJoint ) );
+}
+
 b3DirectionalContactState b3DirectionalContactJoint_GetState( b3JointId jointId )
 {
 	b3DirectionalContactJoint* joint = b3GetDirectionalContactJoint( jointId );
@@ -299,7 +322,7 @@ void b3PrepareDirectionalContactJoint( b3JointSim* base, b3StepContext* context 
 	b3Vec3 forward = b3Add( b3MulSV( cs.cosine, frame.cx ), b3MulSV( cs.sine, b3Cross( up, frame.cx ) ) );
 
 	b3Pos hardPoint = b3TransformWorldPoint( simA->transform, base->localFrameA.p );
-	b3Pos contact = b3TransformWorldPoint( simB->transform, joint->localPointB );
+	b3Pos contact = b3TransformWorldPoint( simB->transform, base->localFrameB.p );
 	b3Vec3 n = b3RotateVector( simB->transform.q, joint->localNormalB );
 	b3Vec3 suspensionDir = b3Neg( up );
 

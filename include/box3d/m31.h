@@ -136,7 +136,9 @@ B3_API b3DirectionalContactJointDef b3DefaultDirectionalContactJointDef( void );
 B3_API void b3DirectionalContactJoint_SetInput( b3JointId jointId, const b3DirectionalContactInput* input );
 
 /// Create a directional contact joint. Body B may be any body (a static anchor works when the ground
-/// is static); use b3DirectionalContactJoint_SetGround to re-target it.
+/// is static); use b3DirectionalContactJoint_SetGround to re-target it. The contact point is the joint's frame B
+/// origin: b3Joint_GetConstraintForce is the force on the ground there (N, world), b3Joint_GetConstraintTorque is
+/// zero, and the force thresholds and joint events see it as for any joint.
 B3_API b3JointId b3CreateDirectionalContactJoint( b3WorldId worldId, const b3DirectionalContactJointDef* def );
 
 /// Set the probed contact for the coming step: world point and normal on body B (the normal points out

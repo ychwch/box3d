@@ -221,11 +221,159 @@ static int ContactCapacityRefusesAndCounts( void )
 	return 0;
 }
 
+// ---- Directional contact joint ----------------------------------------------------------------------------------------
+
+#define WHEEL_COUNT 4
+#define CHASSIS_MASS 100.0f
+#define GRAVITY 10.0f
+#define WHEEL_RADIUS 0.3f
+#define SETTLE_STEPS 180
+
+typedef struct Car
+{
+	b3WorldId worldId;
+	b3BodyId groundIds[2];
+	b3BodyId chassisId;
+	b3JointId wheels[WHEEL_COUNT];
+	b3Vec3 hardPoints[WHEEL_COUNT];
+} Car;
+
+// A box chassis on four sprung wheels over a static ground of two slabs meeting at x = 0, starting at x = -3.
+static Car CreateCar( void )
+{
+	Car car = { 0 };
+	b3WorldDef worldDef = b3DefaultWorldDef();
+	worldDef.gravity = ( b3Vec3 ){ 0.0f, -GRAVITY, 0.0f };
+	worldDef.enableSleep = false;
+	car.worldId = b3CreateWorld( &worldDef );
+
+	b3ShapeDef shapeDef = b3DefaultShapeDef();
+	for ( int i = 0; i < 2; ++i )
+	{
+		b3BodyDef groundDef = b3DefaultBodyDef();
+		groundDef.position = ( b3Pos ){ i == 0 ? -10.0f : 10.0f, -0.5f, 0.0f };
+		car.groundIds[i] = b3CreateBody( car.worldId, &groundDef );
+		b3BoxHull slab = b3MakeBoxHull( 10.0f, 0.5f, 10.0f );
+		b3CreateHullShape( car.groundIds[i], &shapeDef, &slab.base );
+	}
+
+	b3BodyDef bodyDef = b3DefaultBodyDef();
+	bodyDef.type = b3_dynamicBody;
+	bodyDef.position = ( b3Pos ){ -3.0f, 1.0f, 0.0f };
+	car.chassisId = b3CreateBody( car.worldId, &bodyDef );
+	b3BoxHull box = b3MakeBoxHull( 1.5f, 0.25f, 1.0f );
+	b3ShapeDef chassisShape = b3DefaultShapeDef();
+	chassisShape.density = CHASSIS_MASS / ( 3.0f * 0.5f * 2.0f );
+	chassisShape.filter.maskBits = 0;
+	b3CreateHullShape( car.chassisId, &chassisShape, &box.base );
+
+	for ( int i = 0; i < WHEEL_COUNT; ++i )
+	{
+		car.hardPoints[i] = ( b3Vec3 ){ ( i & 1 ) ? 1.2f : -1.2f, 0.0f, ( i & 2 ) ? 0.8f : -0.8f };
+		b3DirectionalContactJointDef def = b3DefaultDirectionalContactJointDef();
+		def.base.bodyIdA = car.chassisId;
+		def.base.bodyIdB = car.groundIds[0];
+		def.base.localFrameA.p = car.hardPoints[i];
+		def.radius = WHEEL_RADIUS;
+		def.minLength = 0.1f;
+		def.maxLength = 0.6f;
+		def.stiffness = 8000.0f;
+		def.damping = 1500.0f;
+		car.wheels[i] = b3CreateDirectionalContactJoint( car.worldId, &def );
+	}
+	return car;
+}
+
+// The probe: the ground under each hard point, on whichever slab that is, with the brakes on or off.
+static void ProbeWheels( Car* car, float brakeTorque, bool retarget )
+{
+	b3WorldTransform xf = b3Body_GetTransform( car->chassisId );
+	for ( int i = 0; i < WHEEL_COUNT; ++i )
+	{
+		b3Pos hardPoint = b3TransformWorldPoint( xf, car->hardPoints[i] );
+		if ( retarget )
+		{
+			b3DirectionalContactJoint_SetGround( car->wheels[i], car->groundIds[hardPoint.x < 0.0f ? 0 : 1] );
+		}
+		b3DirectionalContactInput input = { 0 };
+		input.hasContact = true;
+		input.point = ( b3Pos ){ hardPoint.x, 0.0f, hardPoint.z };
+		input.normal = b3Vec3_axisY;
+		input.longitudinalFriction = 1.0f;
+		input.lateralFriction = 1.0f;
+		input.brakeTorque = brakeTorque;
+		b3DirectionalContactJoint_SetInput( car->wheels[i], &input );
+	}
+}
+
+static b3Vec3 GroundForce( const Car* car )
+{
+	b3Vec3 sum = b3Vec3_zero;
+	for ( int i = 0; i < WHEEL_COUNT; ++i )
+	{
+		sum = b3Add( sum, b3Joint_GetConstraintForce( car->wheels[i] ) );
+	}
+	return sum;
+}
+
+static int ContactJointReportsTheGroundForce( void )
+{
+	Car car = CreateCar();
+	const float brake = 1.0e4f;
+	for ( int i = 0; i < SETTLE_STEPS; ++i )
+	{
+		ProbeWheels( &car, brake, false );
+		b3World_Step( car.worldId, 1.0f / 60.0f, 4 );
+	}
+
+	// At rest the wheels press the weight into the ground, at the contact points.
+	float weight = CHASSIS_MASS * GRAVITY;
+	b3Vec3 force = GroundForce( &car );
+	ENSURE_SMALL( force.y + weight, 0.005f * weight );
+	ENSURE_SMALL( force.x, 0.005f * weight );
+	ENSURE_SMALL( force.z, 0.005f * weight );
+	b3WorldTransform xf = b3Body_GetTransform( car.chassisId );
+	for ( int i = 0; i < WHEEL_COUNT; ++i )
+	{
+		ENSURE( b3Length( b3Joint_GetConstraintTorque( car.wheels[i] ) ) == 0.0f );
+		b3Vec3 anchor = b3Joint_GetLocalFrameB( car.wheels[i] ).p;
+		b3Pos hardPoint = b3TransformWorldPoint( xf, car.hardPoints[i] );
+		ENSURE_SMALL( anchor.x - (float)( hardPoint.x + 10.0 ), 1.0e-5f );
+		ENSURE_SMALL( anchor.y - 0.5f, 1.0e-5f );
+	}
+
+	// Pushed forward and sideways with the brakes on, both friction rows carry the push into the ground.
+	const float push = 300.0f;
+	for ( int i = 0; i < 60; ++i )
+	{
+		ProbeWheels( &car, brake, false );
+		b3Body_ApplyForceToCenter( car.chassisId, ( b3Vec3 ){ push, 0.0f, 0.5f * push }, true );
+		b3World_Step( car.worldId, 1.0f / 60.0f, 4 );
+	}
+	force = GroundForce( &car );
+	ENSURE_SMALL( force.x - push, 0.01f * push );
+	ENSURE_SMALL( force.z - 0.5f * push, 0.01f * push );
+	ENSURE_SMALL( force.y + weight, 0.01f * weight );
+
+	// A threshold under one wheel's share reports every wheel as overloaded.
+	for ( int i = 0; i < WHEEL_COUNT; ++i )
+	{
+		b3Joint_SetForceThreshold( car.wheels[i], 0.2f * weight );
+	}
+	ProbeWheels( &car, brake, false );
+	b3World_Step( car.worldId, 1.0f / 60.0f, 4 );
+	ENSURE( b3World_GetJointEvents( car.worldId ).count == WHEEL_COUNT );
+
+	b3DestroyWorld( car.worldId );
+	return 0;
+}
+
 int M31Test( void )
 {
 	RUN_SUBTEST( CapacityGrowsInSixtyFourBits );
 	RUN_SUBTEST( ByteSizesPassTwoGibibytes );
 	RUN_SUBTEST( FailedAllocationIsReported );
 	RUN_SUBTEST( ContactCapacityRefusesAndCounts );
+	RUN_SUBTEST( ContactJointReportsTheGroundForce );
 	return 0;
 }

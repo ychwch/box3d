@@ -30,7 +30,7 @@ typedef struct b3DirectionalContactJoint
 	float lateralFriction;
 	float normalForce;
 	float restLength;
-	b3Vec3 localPointB;
+	// The contact point is the joint's frame B origin, so the joint's force acts there and its torque is zero.
 	b3Vec3 localNormalB;
 
 	// state
@@ -60,6 +60,9 @@ typedef struct b3DirectionalContactJoint
 
 	bool hasContact;
 } b3DirectionalContactJoint;
+
+b3Vec3 b3GetDirectionalContactJointForce( b3World* world, b3JointSim* base );
+float b3GetDirectionalContactJointImpulse( const b3JointSim* base );
 
 void b3PrepareDirectionalContactJoint( b3JointSim* base, b3StepContext* context );
 void b3WarmStartDirectionalContactJoint( b3JointSim* base, b3StepContext* context );

@@ -1116,6 +1116,10 @@ void b3GetJointReaction( b3World* world, b3JointSim* sim, float invTimeStep, flo
 		}
 		break;
 
+		case b3_directionalContactJoint:
+			linearImpulse = b3GetDirectionalContactJointImpulse( sim );
+			break;
+
 		default:
 			break;
 	}
@@ -1158,7 +1162,7 @@ static b3Vec3 b3GetJointConstraintForce( b3World* world, b3Joint* joint )
 			return b3GetWheelJointForce( world, base );
 
 		case b3_directionalContactJoint:
-			return b3Vec3_zero;
+			return b3GetDirectionalContactJointForce( world, base );
 
 		default:
 			B3_ASSERT( false );
@@ -1200,6 +1204,7 @@ static b3Vec3 b3GetJointConstraintTorque( b3World* world, b3Joint* joint )
 			return b3GetWheelJointTorque( world, base );
 
 		case b3_directionalContactJoint:
+			// The force acts at frame B's origin, the contact point.
 			return b3Vec3_zero;
 
 		default:
