@@ -159,54 +159,30 @@ void b3DirectionalContactJoint_ClearContact( b3JointId jointId )
 	joint->lateralImpulse = 0.0f;
 }
 
-b3JointId b3DirectionalContactJoint_SetGround( b3JointId jointId, b3BodyId groundId )
+void b3DirectionalContactJoint_SetGround( b3JointId jointId, b3BodyId groundId )
 {
-	b3World* world = b3GetWorld( jointId.world0 );
-	B3_ASSERT( world->locked == false );
-	if ( world->locked )
+	b3World* world = b3GetUnlockedWorld( jointId.world0 );
+	if ( world == NULL )
 	{
-		return jointId;
+		return;
 	}
 
 	b3Joint* joint = b3GetJointFullId( world, jointId );
-	int oldGround = joint->edges[1].bodyId;
+	B3_ASSERT( joint->type == b3_directionalContactJoint );
 	b3Body* newBody = b3GetBodyFullId( world, groundId );
-	if ( newBody->id == oldGround )
+	if ( newBody->id == joint->edges[1].bodyId )
 	{
-		return jointId;
+		return;
 	}
 
-	b3JointSim* base = b3GetJointSim( world, joint );
-	b3DirectionalContactJoint saved = base->directionalContactJoint;
+	// The contact and the warm-start impulses carry over: frame B, the contact point, keeps its world pose, and the
+	// normal is turned into the new body's frame.
+	b3WorldTransform oldTransform = b3GetBodyTransform( world, joint->edges[1].bodyId );
+	b3WorldTransform newTransform = b3GetBodyTransform( world, newBody->id );
+	b3RetargetJointB( world, joint, newBody );
 
-	b3JointDef def = { 0 };
-	def.userData = joint->userData;
-	def.bodyIdA = b3MakeBodyId( world, joint->edges[0].bodyId );
-	def.bodyIdB = groundId;
-	def.localFrameA = base->localFrameA;
-	def.localFrameB = base->localFrameB;
-	def.forceThreshold = base->forceThreshold;
-	def.torqueThreshold = base->torqueThreshold;
-	def.constraintHertz = base->constraintHertz;
-	def.constraintDampingRatio = base->constraintDampingRatio;
-	def.drawScale = joint->drawScale;
-	def.collideConnected = joint->collideConnected;
-	def.internalValue = B3_SECRET_COOKIE;
-
-	b3DestroyJointInternal( world, joint, false );
-	b3JointPair pair = b3CreateJoint( world, &def, b3_directionalContactJoint );
-
-	saved.springImpulse = 0.0f;
-	saved.bumpImpulse = 0.0f;
-	saved.longitudinalImpulse = 0.0f;
-	saved.lateralImpulse = 0.0f;
-	saved.brakeImpulse = 0.0f;
-	saved.hasContact = false;
-	saved.indexA = B3_NULL_INDEX;
-	saved.indexB = B3_NULL_INDEX;
-	pair.jointSim->directionalContactJoint = saved;
-
-	return (b3JointId){ pair.jointSim->jointId + 1, world->worldId, pair.joint->generation };
+	b3DirectionalContactJoint* dc = &b3GetJointSim( world, joint )->directionalContactJoint;
+	dc->localNormalB = b3InvRotateVector( newTransform.q, b3RotateVector( oldTransform.q, dc->localNormalB ) );
 }
 
 void b3DirectionalContactJoint_SetFriction( b3JointId jointId, float longitudinal, float lateral )

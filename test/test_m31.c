@@ -368,6 +368,122 @@ static int ContactJointReportsTheGroundForce( void )
 	return 0;
 }
 
+// Rolled across the seam between the slabs, each wheel moves to the slab under it and keeps its id. The warm start
+// carries over, so the chassis does not feel the seams: re-created joints (impulses zeroed) gave a 4e-4 support dip and
+// kicked the chassis 7.7e-5 m/s up and 1.8e-4 rad/s in pitch; carried, 0 and 1.2e-6 m/s.
+#define SEAM_SUPPORT_TOLERANCE 1.0e-4f
+#define SEAM_VERTICAL_SPEED 1.0e-5f
+
+static int ContactJointKeepsItsIdAcrossGrounds( void )
+{
+	Car car = CreateCar();
+	for ( int i = 0; i < SETTLE_STEPS; ++i )
+	{
+		ProbeWheels( &car, 1.0e4f, true );
+		b3World_Step( car.worldId, 1.0f / 60.0f, 4 );
+	}
+
+	b3JointId ids[WHEEL_COUNT];
+	for ( int i = 0; i < WHEEL_COUNT; ++i )
+	{
+		ids[i] = car.wheels[i];
+		ENSURE( B3_ID_EQUALS( b3Joint_GetBodyB( car.wheels[i] ), car.groundIds[0] ) );
+	}
+
+	// Without a new probe the contact keeps its world position on the new ground.
+	{
+		b3WorldTransform from = b3Body_GetTransform( car.groundIds[0] );
+		b3WorldTransform to = b3Body_GetTransform( car.groundIds[1] );
+		b3Pos before = b3TransformWorldPoint( from, b3Joint_GetLocalFrameB( car.wheels[0] ).p );
+		b3DirectionalContactJoint_SetGround( car.wheels[0], car.groundIds[1] );
+		ENSURE( B3_ID_EQUALS( car.wheels[0], ids[0] ) );
+		ENSURE( B3_ID_EQUALS( b3Joint_GetBodyB( car.wheels[0] ), car.groundIds[1] ) );
+		b3Pos after = b3TransformWorldPoint( to, b3Joint_GetLocalFrameB( car.wheels[0] ).p );
+		ENSURE_SMALL( (float)( after.x - before.x ), 1.0e-5f );
+		ENSURE_SMALL( (float)( after.y - before.y ), 1.0e-5f );
+		ENSURE( b3DirectionalContactJoint_GetState( car.wheels[0] ).hasContact );
+		b3DirectionalContactJoint_SetGround( car.wheels[0], car.groundIds[0] );
+	}
+
+	float weight = CHASSIS_MASS * GRAVITY;
+	float worst = 0.0f;
+	float worstVy = 0.0f;
+	for ( int i = 0; i < 240; ++i )
+	{
+		ProbeWheels( &car, 0.0f, true );
+		b3Body_ApplyForceToCenter( car.chassisId, ( b3Vec3 ){ 120.0f, 0.0f, 0.0f }, true );
+		b3World_Step( car.worldId, 1.0f / 60.0f, 4 );
+		float deviation = b3AbsFloat( GroundForce( &car ).y + weight ) / weight;
+		float x = (float)b3Body_GetPosition( car.chassisId ).x;
+		float vy = b3AbsFloat( b3Body_GetLinearVelocity( car.chassisId ).y );
+		bool nearSeam = b3AbsFloat( x + 1.2f ) < 0.3f || b3AbsFloat( x - 1.2f ) < 0.3f;
+		if ( nearSeam )
+		{
+			worst = b3MaxFloat( worst, deviation );
+			worstVy = b3MaxFloat( worstVy, vy );
+		}
+	}
+
+	ENSURE( b3Body_GetPosition( car.chassisId ).x > 2.0f );
+	ENSURE( b3World_GetCounters( car.worldId ).jointCount == WHEEL_COUNT );
+	for ( int i = 0; i < WHEEL_COUNT; ++i )
+	{
+		ENSURE( B3_ID_EQUALS( car.wheels[i], ids[i] ) );
+		ENSURE( b3Joint_IsValid( ids[i] ) );
+		ENSURE( B3_ID_EQUALS( b3Joint_GetBodyB( ids[i] ), car.groundIds[1] ) );
+	}
+	ENSURE( worst < SEAM_SUPPORT_TOLERANCE );
+	ENSURE( worstVy < SEAM_VERTICAL_SPEED );
+
+	b3DestroyWorld( car.worldId );
+	return 0;
+}
+
+// Re-targeting onto a sleeping dynamic body wakes it and joins the carrier's island; back onto static ground the
+// joint leaves it. Validation builds check the solver sets after every move.
+static int ContactJointMovesBetweenStaticAndDynamicGround( void )
+{
+	Car car = CreateCar();
+	b3ShapeDef shapeDef = b3DefaultShapeDef();
+	b3BodyDef plankDef = b3DefaultBodyDef();
+	plankDef.type = b3_dynamicBody;
+	plankDef.position = ( b3Pos ){ 8.0f, 0.25f, 0.0f };
+	b3BodyId plankId = b3CreateBody( car.worldId, &plankDef );
+	b3BoxHull plank = b3MakeBoxHull( 1.0f, 0.25f, 1.0f );
+	b3CreateHullShape( plankId, &shapeDef, &plank.base );
+	b3Body_SetAwake( plankId, false );
+	ENSURE( b3Body_IsAwake( plankId ) == false );
+
+	for ( int i = 0; i < 30; ++i )
+	{
+		ProbeWheels( &car, 1.0e4f, false );
+		b3World_Step( car.worldId, 1.0f / 60.0f, 4 );
+	}
+
+	b3JointId id = car.wheels[0];
+	b3DirectionalContactJoint_SetGround( id, plankId );
+	ENSURE( B3_ID_EQUALS( b3Joint_GetBodyB( id ), plankId ) );
+	ENSURE( b3Body_IsAwake( plankId ) );
+	ENSURE( b3Joint_IsAwake( id ) );
+	b3World_Step( car.worldId, 1.0f / 60.0f, 4 );
+
+	b3DirectionalContactJoint_SetGround( id, car.groundIds[1] );
+	ENSURE( B3_ID_EQUALS( b3Joint_GetBodyB( id ), car.groundIds[1] ) );
+	b3DirectionalContactJoint_SetGround( id, car.groundIds[0] );
+	ENSURE( B3_ID_EQUALS( car.wheels[0], id ) );
+	for ( int i = 0; i < 30; ++i )
+	{
+		ProbeWheels( &car, 1.0e4f, false );
+		b3World_Step( car.worldId, 1.0f / 60.0f, 4 );
+	}
+	ENSURE( b3World_GetCounters( car.worldId ).jointCount == WHEEL_COUNT );
+
+	b3DestroyJoint( id, false );
+	ENSURE( b3Joint_IsValid( id ) == false );
+	b3DestroyWorld( car.worldId );
+	return 0;
+}
+
 int M31Test( void )
 {
 	RUN_SUBTEST( CapacityGrowsInSixtyFourBits );
@@ -375,5 +491,7 @@ int M31Test( void )
 	RUN_SUBTEST( FailedAllocationIsReported );
 	RUN_SUBTEST( ContactCapacityRefusesAndCounts );
 	RUN_SUBTEST( ContactJointReportsTheGroundForce );
+	RUN_SUBTEST( ContactJointKeepsItsIdAcrossGrounds );
+	RUN_SUBTEST( ContactJointMovesBetweenStaticAndDynamicGround );
 	return 0;
 }

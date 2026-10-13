@@ -10,6 +10,7 @@
 #include "box3d/types.h"
 
 typedef struct b3BitSet b3BitSet;
+typedef struct b3Body b3Body;
 typedef struct b3DebugDraw b3DebugDraw;
 typedef struct b3StepContext b3StepContext;
 typedef struct b3World b3World;
@@ -356,6 +357,7 @@ typedef struct b3JointPair
 
 b3JointPair b3CreateJoint( b3World* world, const b3JointDef* def, b3JointType type );
 void b3DestroyJointInternal( b3World* world, b3Joint* joint, bool wakeBodies );
+void b3RetargetJointB( b3World* world, b3Joint* joint, b3Body* newBody );
 
 b3Joint* b3GetJointFullId( b3World* world, b3JointId jointId );
 b3JointSim* b3GetJointSim( b3World* world, b3Joint* joint );

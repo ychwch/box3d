@@ -191,77 +191,61 @@ static void b3DestroyContactsBetweenBodies( b3World* world, b3Body* bodyA, b3Bod
 	b3ValidateSolverSets( world );
 }
 
-b3JointPair b3CreateJoint( b3World* world, const b3JointDef* def, b3JointType type )
+// m31: a joint's body lists, solver-set placement and pair filtering, shared by create, destroy and re-target.
+
+static void b3LinkJointEdge( b3World* world, b3Joint* joint, int edgeIndex, b3Body* body )
 {
-	B3_ASSERT( b3IsValidTransform( def->localFrameA ) );
-	B3_ASSERT( b3IsValidTransform( def->localFrameB ) );
-	B3_ASSERT( world->worldId == def->bodyIdA.world0 );
-	B3_ASSERT( world->worldId == def->bodyIdB.world0 );
-	B3_ASSERT( B3_ID_EQUALS( def->bodyIdA, def->bodyIdB ) == false );
+	int key = ( joint->jointId << 1 ) | edgeIndex;
+	b3JointEdge* edge = joint->edges + edgeIndex;
+	edge->bodyId = body->id;
+	edge->prevKey = B3_NULL_INDEX;
+	edge->nextKey = body->headJointKey;
 
-	b3Body* bodyA = b3GetBodyFullId( world, def->bodyIdA );
-	b3Body* bodyB = b3GetBodyFullId( world, def->bodyIdB );
-
-	// If the joint prevents collisions, then destroy all contacts between attached bodies.
-	// Do this first so world arrays are not disturbed in the following code.
-	if ( def->collideConnected == false )
+	if ( body->headJointKey != B3_NULL_INDEX )
 	{
-		b3DestroyContactsBetweenBodies( world, bodyA, bodyB );
+		b3Joint* headJoint = b3Array_Get( world->joints, body->headJointKey >> 1 );
+		b3JointEdge* headEdge = headJoint->edges + ( body->headJointKey & 1 );
+		headEdge->prevKey = key;
+	}
+	body->headJointKey = key;
+	body->jointCount += 1;
+}
+
+static void b3UnlinkJointEdge( b3World* world, b3Joint* joint, int edgeIndex, b3Body* body )
+{
+	b3JointEdge* edge = joint->edges + edgeIndex;
+
+	if ( edge->prevKey != B3_NULL_INDEX )
+	{
+		b3Joint* prevJoint = b3Array_Get( world->joints, edge->prevKey >> 1 );
+		b3JointEdge* prevEdge = prevJoint->edges + ( edge->prevKey & 1 );
+		prevEdge->nextKey = edge->nextKey;
 	}
 
+	if ( edge->nextKey != B3_NULL_INDEX )
+	{
+		b3Joint* nextJoint = b3Array_Get( world->joints, edge->nextKey >> 1 );
+		b3JointEdge* nextEdge = nextJoint->edges + ( edge->nextKey & 1 );
+		nextEdge->prevKey = edge->prevKey;
+	}
+
+	int key = ( joint->jointId << 1 ) | edgeIndex;
+	if ( body->headJointKey == key )
+	{
+		body->headJointKey = edge->nextKey;
+	}
+
+	body->jointCount -= 1;
+}
+
+// A zeroed sim in the solver set the joint's bodies call for, with its ids set. The caller links the joint into the
+// island graph once the sim is filled.
+static b3JointSim* b3AddJointSim( b3World* world, b3Joint* joint, b3Body* bodyA, b3Body* bodyB )
+{
+	int jointId = joint->jointId;
 	int bodyIdA = bodyA->id;
 	int bodyIdB = bodyB->id;
 	int maxSetIndex = b3MaxInt( bodyA->setIndex, bodyB->setIndex );
-
-	// Create joint id and joint
-	int jointId = b3AllocId( &world->jointIdPool );
-	if ( jointId == world->joints.count )
-	{
-		b3Array_Push( world->joints, (b3Joint){ 0 } );
-	}
-
-	b3Joint* joint = b3Array_Get( world->joints, jointId );
-	joint->jointId = jointId;
-	joint->userData = def->userData;
-	joint->generation += 1;
-	joint->setIndex = B3_NULL_INDEX;
-	joint->colorIndex = B3_NULL_INDEX;
-	joint->localIndex = B3_NULL_INDEX;
-	joint->islandId = B3_NULL_INDEX;
-	joint->islandIndex = B3_NULL_INDEX;
-	joint->drawScale = def->drawScale;
-	joint->type = type;
-	joint->collideConnected = def->collideConnected;
-
-	// Doubly linked list on bodyA
-	joint->edges[0].bodyId = bodyIdA;
-	joint->edges[0].prevKey = B3_NULL_INDEX;
-	joint->edges[0].nextKey = bodyA->headJointKey;
-
-	int keyA = ( jointId << 1 ) | 0;
-	if ( bodyA->headJointKey != B3_NULL_INDEX )
-	{
-		b3Joint* jointA = b3Array_Get( world->joints, bodyA->headJointKey >> 1 );
-		b3JointEdge* edgeA = jointA->edges + ( bodyA->headJointKey & 1 );
-		edgeA->prevKey = keyA;
-	}
-	bodyA->headJointKey = keyA;
-	bodyA->jointCount += 1;
-
-	// Doubly linked list on bodyB
-	joint->edges[1].bodyId = bodyIdB;
-	joint->edges[1].prevKey = B3_NULL_INDEX;
-	joint->edges[1].nextKey = bodyB->headJointKey;
-
-	int keyB = ( jointId << 1 ) | 1;
-	if ( bodyB->headJointKey != B3_NULL_INDEX )
-	{
-		b3Joint* jointB = b3Array_Get( world->joints, bodyB->headJointKey >> 1 );
-		b3JointEdge* edgeB = jointB->edges + ( bodyB->headJointKey & 1 );
-		edgeB->prevKey = keyB;
-	}
-	bodyB->headJointKey = keyB;
-	bodyB->jointCount += 1;
 
 	b3JointSim* jointSim;
 
@@ -347,6 +331,111 @@ b3JointPair b3CreateJoint( b3World* world, const b3JointDef* def, b3JointType ty
 		B3_ASSERT( joint->setIndex == setIndex );
 	}
 
+	return jointSim;
+}
+
+// Removes the joint from the island graph and from the solver set that owns its sim. Body B's edge must still name
+// the body the joint was placed with: the constraint graph frees its colour by the body ids.
+static void b3RemoveJointSim( b3World* world, b3Joint* joint )
+{
+	if ( joint->islandId != B3_NULL_INDEX )
+	{
+		B3_ASSERT( joint->setIndex > b3_disabledSet );
+		b3UnlinkJoint( world, joint );
+	}
+	else
+	{
+		B3_ASSERT( joint->setIndex <= b3_disabledSet );
+	}
+
+	// Remove joint from solver set that owns it
+	int setIndex = joint->setIndex;
+	int localIndex = joint->localIndex;
+
+	if ( setIndex == b3_awakeSet )
+	{
+		b3RemoveJointFromGraph( world, joint->edges[0].bodyId, joint->edges[1].bodyId, joint->colorIndex, localIndex );
+	}
+	else
+	{
+		b3SolverSet* set = b3Array_Get( world->solverSets, setIndex );
+		int movedIndex = b3Array_RemoveSwap( set->jointSims, localIndex );
+		if ( movedIndex != B3_NULL_INDEX )
+		{
+			// Fix moved joint
+			b3JointSim* movedJointSim = set->jointSims.data + localIndex;
+			int movedId = movedJointSim->jointId;
+			b3Joint* movedJoint = b3Array_Get( world->joints, movedId );
+			B3_ASSERT( movedJoint->localIndex == movedIndex );
+			movedJoint->localIndex = localIndex;
+		}
+	}
+
+	joint->setIndex = B3_NULL_INDEX;
+	joint->localIndex = B3_NULL_INDEX;
+	joint->colorIndex = B3_NULL_INDEX;
+}
+
+// The broad-phase looks for pairs between two bodies again, from the one with fewer shapes.
+static void b3FindPairsAgain( b3World* world, b3Body* bodyA, b3Body* bodyB )
+{
+	int shapeId = bodyA->shapeCount < bodyB->shapeCount ? bodyA->headShapeId : bodyB->headShapeId;
+	while ( shapeId != B3_NULL_INDEX )
+	{
+		b3Shape* shape = b3Array_Get( world->shapes, shapeId );
+
+		if ( shape->proxyKey != B3_NULL_INDEX )
+		{
+			b3BroadPhase_MarkProxyMovedSerial( &world->broadPhase, shape->proxyKey );
+		}
+
+		shapeId = shape->nextShapeId;
+	}
+}
+
+b3JointPair b3CreateJoint( b3World* world, const b3JointDef* def, b3JointType type )
+{
+	B3_ASSERT( b3IsValidTransform( def->localFrameA ) );
+	B3_ASSERT( b3IsValidTransform( def->localFrameB ) );
+	B3_ASSERT( world->worldId == def->bodyIdA.world0 );
+	B3_ASSERT( world->worldId == def->bodyIdB.world0 );
+	B3_ASSERT( B3_ID_EQUALS( def->bodyIdA, def->bodyIdB ) == false );
+
+	b3Body* bodyA = b3GetBodyFullId( world, def->bodyIdA );
+	b3Body* bodyB = b3GetBodyFullId( world, def->bodyIdB );
+
+	// If the joint prevents collisions, then destroy all contacts between attached bodies.
+	// Do this first so world arrays are not disturbed in the following code.
+	if ( def->collideConnected == false )
+	{
+		b3DestroyContactsBetweenBodies( world, bodyA, bodyB );
+	}
+
+	// Create joint id and joint
+	int jointId = b3AllocId( &world->jointIdPool );
+	if ( jointId == world->joints.count )
+	{
+		b3Array_Push( world->joints, (b3Joint){ 0 } );
+	}
+
+	b3Joint* joint = b3Array_Get( world->joints, jointId );
+	joint->jointId = jointId;
+	joint->userData = def->userData;
+	joint->generation += 1;
+	joint->setIndex = B3_NULL_INDEX;
+	joint->colorIndex = B3_NULL_INDEX;
+	joint->localIndex = B3_NULL_INDEX;
+	joint->islandId = B3_NULL_INDEX;
+	joint->islandIndex = B3_NULL_INDEX;
+	joint->drawScale = def->drawScale;
+	joint->type = type;
+	joint->collideConnected = def->collideConnected;
+
+	b3LinkJointEdge( world, joint, 0, bodyA );
+	b3LinkJointEdge( world, joint, 1, bodyB );
+
+	b3JointSim* jointSim = b3AddJointSim( world, joint, bodyA, bodyB );
+
 	jointSim->localFrameA = def->localFrameA;
 	jointSim->localFrameB = def->localFrameB;
 	jointSim->type = type;
@@ -365,8 +454,8 @@ b3JointPair b3CreateJoint( b3World* world, const b3JointDef* def, b3JointType ty
 	jointSim->torqueThreshold = def->torqueThreshold;
 
 	B3_ASSERT( jointSim->jointId == jointId );
-	B3_ASSERT( jointSim->bodyIdA == bodyIdA );
-	B3_ASSERT( jointSim->bodyIdB == bodyIdB );
+	B3_ASSERT( jointSim->bodyIdA == bodyA->id );
+	B3_ASSERT( jointSim->bodyIdB == bodyB->id );
 
 	if ( joint->setIndex > b3_disabledSet )
 	{
@@ -731,97 +820,14 @@ void b3DestroyJointInternal( b3World* world, b3Joint* joint, bool wakeBodies )
 {
 	int jointId = joint->jointId;
 
-	b3JointEdge* edgeA = joint->edges + 0;
-	b3JointEdge* edgeB = joint->edges + 1;
+	b3Body* bodyA = b3Array_Get( world->bodies, joint->edges[0].bodyId );
+	b3Body* bodyB = b3Array_Get( world->bodies, joint->edges[1].bodyId );
 
-	int idA = edgeA->bodyId;
-	int idB = edgeB->bodyId;
-	b3Body* bodyA = b3Array_Get( world->bodies, idA );
-	b3Body* bodyB = b3Array_Get( world->bodies, idB );
-
-	// Remove from body A
-	if ( edgeA->prevKey != B3_NULL_INDEX )
-	{
-		b3Joint* prevJoint = b3Array_Get( world->joints, edgeA->prevKey >> 1 );
-		b3JointEdge* prevEdge = prevJoint->edges + ( edgeA->prevKey & 1 );
-		prevEdge->nextKey = edgeA->nextKey;
-	}
-
-	if ( edgeA->nextKey != B3_NULL_INDEX )
-	{
-		b3Joint* nextJoint = b3Array_Get( world->joints, edgeA->nextKey >> 1 );
-		b3JointEdge* nextEdge = nextJoint->edges + ( edgeA->nextKey & 1 );
-		nextEdge->prevKey = edgeA->prevKey;
-	}
-
-	int edgeKeyA = ( jointId << 1 ) | 0;
-	if ( bodyA->headJointKey == edgeKeyA )
-	{
-		bodyA->headJointKey = edgeA->nextKey;
-	}
-
-	bodyA->jointCount -= 1;
-
-	// Remove from body B
-	if ( edgeB->prevKey != B3_NULL_INDEX )
-	{
-		b3Joint* prevJoint = b3Array_Get( world->joints, edgeB->prevKey >> 1 );
-		b3JointEdge* prevEdge = prevJoint->edges + ( edgeB->prevKey & 1 );
-		prevEdge->nextKey = edgeB->nextKey;
-	}
-
-	if ( edgeB->nextKey != B3_NULL_INDEX )
-	{
-		b3Joint* nextJoint = b3Array_Get( world->joints, edgeB->nextKey >> 1 );
-		b3JointEdge* nextEdge = nextJoint->edges + ( edgeB->nextKey & 1 );
-		nextEdge->prevKey = edgeB->prevKey;
-	}
-
-	int edgeKeyB = ( jointId << 1 ) | 1;
-	if ( bodyB->headJointKey == edgeKeyB )
-	{
-		bodyB->headJointKey = edgeB->nextKey;
-	}
-
-	bodyB->jointCount -= 1;
-
-	if ( joint->islandId != B3_NULL_INDEX )
-	{
-		B3_ASSERT( joint->setIndex > b3_disabledSet );
-		b3UnlinkJoint( world, joint );
-	}
-	else
-	{
-		B3_ASSERT( joint->setIndex <= b3_disabledSet );
-	}
-
-	// Remove joint from solver set that owns it
-	int setIndex = joint->setIndex;
-	int localIndex = joint->localIndex;
-
-	if ( setIndex == b3_awakeSet )
-	{
-		b3RemoveJointFromGraph( world, joint->edges[0].bodyId, joint->edges[1].bodyId, joint->colorIndex, localIndex );
-	}
-	else
-	{
-		b3SolverSet* set = b3Array_Get( world->solverSets, setIndex );
-		int movedIndex = b3Array_RemoveSwap( set->jointSims, localIndex );
-		if ( movedIndex != B3_NULL_INDEX )
-		{
-			// Fix moved joint
-			b3JointSim* movedJointSim = set->jointSims.data + localIndex;
-			int movedId = movedJointSim->jointId;
-			b3Joint* movedJoint = b3Array_Get( world->joints, movedId );
-			B3_ASSERT( movedJoint->localIndex == movedIndex );
-			movedJoint->localIndex = localIndex;
-		}
-	}
+	b3UnlinkJointEdge( world, joint, 0, bodyA );
+	b3UnlinkJointEdge( world, joint, 1, bodyB );
+	b3RemoveJointSim( world, joint );
 
 	// Free joint and id (preserve joint revision)
-	joint->setIndex = B3_NULL_INDEX;
-	joint->localIndex = B3_NULL_INDEX;
-	joint->colorIndex = B3_NULL_INDEX;
 	joint->jointId = B3_NULL_INDEX;
 	b3FreeId( &world->jointIdPool, jointId );
 
@@ -829,6 +835,44 @@ void b3DestroyJointInternal( b3World* world, b3Joint* joint, bool wakeBodies )
 	{
 		b3WakeBody( world, bodyA );
 		b3WakeBody( world, bodyB );
+	}
+
+	b3ValidateSolverSets( world );
+}
+
+// m31: moves body B's end of the joint to another body, keeping the joint's id, generation and solver state; frame B
+// keeps its world pose. The joint is placed as if created on the new pair.
+void b3RetargetJointB( b3World* world, b3Joint* joint, b3Body* newBody )
+{
+	b3Body* bodyA = b3Array_Get( world->bodies, joint->edges[0].bodyId );
+	b3Body* oldBody = b3Array_Get( world->bodies, joint->edges[1].bodyId );
+	B3_ASSERT( newBody != oldBody && newBody != bodyA );
+
+	// As in creation, contacts go first so the following code sees settled world arrays.
+	if ( joint->collideConnected == false )
+	{
+		b3DestroyContactsBetweenBodies( world, bodyA, newBody );
+		b3FindPairsAgain( world, bodyA, oldBody );
+	}
+
+	b3WorldTransform oldTransform = b3GetBodyTransformQuick( world, oldBody );
+	b3WorldTransform newTransform = b3GetBodyTransformQuick( world, newBody );
+	b3JointSim saved = *b3GetJointSim( world, joint );
+
+	b3RemoveJointSim( world, joint );
+	b3UnlinkJointEdge( world, joint, 1, oldBody );
+	b3LinkJointEdge( world, joint, 1, newBody );
+
+	b3JointSim* jointSim = b3AddJointSim( world, joint, bodyA, newBody );
+	*jointSim = saved;
+	jointSim->bodyIdB = newBody->id;
+	b3Pos anchor = b3TransformWorldPoint( oldTransform, saved.localFrameB.p );
+	jointSim->localFrameB.p = b3InvTransformWorldPoint( newTransform, anchor );
+	jointSim->localFrameB.q = b3InvMulQuat( newTransform.q, b3MulQuat( oldTransform.q, saved.localFrameB.q ) );
+
+	if ( joint->setIndex > b3_disabledSet )
+	{
+		b3LinkJoint( world, joint );
 	}
 
 	b3ValidateSolverSets( world );
@@ -939,21 +983,7 @@ void b3Joint_SetCollideConnected( b3JointId jointId, bool shouldCollide )
 	{
 		// need to tell the broad-phase to look for new pairs for one of the
 		// two bodies. Pick the one with the fewest shapes.
-		int shapeCountA = bodyA->shapeCount;
-		int shapeCountB = bodyB->shapeCount;
-
-		int shapeId = shapeCountA < shapeCountB ? bodyA->headShapeId : bodyB->headShapeId;
-		while ( shapeId != B3_NULL_INDEX )
-		{
-			b3Shape* shape = b3Array_Get( world->shapes, shapeId );
-
-			if ( shape->proxyKey != B3_NULL_INDEX )
-			{
-				b3BroadPhase_MarkProxyMovedSerial( &world->broadPhase, shape->proxyKey );
-			}
-
-			shapeId = shape->nextShapeId;
-		}
+		b3FindPairsAgain( world, bodyA, bodyB );
 	}
 	else
 	{

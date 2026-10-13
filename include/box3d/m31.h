@@ -148,9 +148,9 @@ B3_API void b3DirectionalContactJoint_SetContact( b3JointId jointId, b3Pos point
 /// No ground under the wheel this step: every row is skipped, the spin is kept.
 B3_API void b3DirectionalContactJoint_ClearContact( b3JointId jointId );
 
-/// Re-target the joint to another ground body. Returns the id to use from now on (the joint is
-/// re-created when the body changes; settings, spin and impulses carry over).
-B3_API b3JointId b3DirectionalContactJoint_SetGround( b3JointId jointId, b3BodyId groundId );
+/// Re-target the joint to another ground body. The joint keeps its id; its settings, spin, contact and warm-start
+/// impulses carry over, and the contact keeps its world position until the next SetContact or SetInput.
+B3_API void b3DirectionalContactJoint_SetGround( b3JointId jointId, b3BodyId groundId );
 
 /// Friction coefficients bounding the longitudinal and lateral rows (impulse <= mu * normal impulse).
 B3_API void b3DirectionalContactJoint_SetFriction( b3JointId jointId, float longitudinal, float lateral );
