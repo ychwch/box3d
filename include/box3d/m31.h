@@ -200,6 +200,9 @@ B3_API void b3SubStep_SetFriction( b3SubStepContext* context, b3JointId jointId,
 B3_API void b3SubStep_SetNormalForce( b3SubStepContext* context, b3JointId jointId, float normalForce );
 B3_API void b3SubStep_SetSlipDamping( b3SubStepContext* context, b3JointId jointId, float longitudinal, float lateral );
 
+/// Brake torque capacity (N m) from the coming sub-step until the next step input: a brake modulated within the step.
+B3_API void b3SubStep_SetBrakeTorque( b3SubStepContext* context, b3JointId jointId, float torque );
+
 /// Suspension joint: a chassis (body A) and an unsprung body (body B), a wheel hub or a solid axle.
 /// Frame A is the mount: travel along y, forward x, axle z. Frame B is the matching point on the unsprung body.
 /// - Independent wheel: only travel along y is free.

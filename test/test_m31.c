@@ -835,6 +835,45 @@ static int TireHopDecaysAtItsOwnDamping( void )
 
 // A slip-damped row is a damper: pushed sideways by a steady force F, the hub slides at F / c. With a damper far past
 // what an explicit force could take (c h / m of 1000) it settles as fast, without ringing.
+typedef struct BrakeHook
+{
+	b3JointId tireId;
+	float torque;
+	int fromSubStep;
+} BrakeHook;
+
+static void ApplyBrakeHook( b3SubStepContext* context, void* userContext )
+{
+	BrakeHook* hook = userContext;
+	if ( b3SubStep_GetIndex( context ) >= hook->fromSubStep )
+	{
+		b3SubStep_SetBrakeTorque( context, hook->tireId, hook->torque );
+	}
+}
+
+// A brake set from the sub-step hook acts from that sub-step: on a frictionless contact the spin falls by T h / I in
+// each braked sub-step and in no other.
+static int SubStepBrakeActsFromItsSubStep( void )
+{
+	TireRig t = CreateTireRig( HUB_MASS );
+	BrakeHook hook = { t.tireId, 20.0f, 2 };
+	b3World_SetSubStepCallback( t.worldId, ApplyBrakeHook, &hook );
+	const float spinInertia = 2.0f;
+	const float spin = 10.0f;
+	b3DirectionalContactInput input = { 0 };
+	input.hasContact = true;
+	input.point = ( b3Pos ){ 0.0f, 0.0f, 0.0f };
+	input.normal = b3Vec3_axisY;
+	b3DirectionalContactJoint_SetInput( t.tireId, &input );
+	b3DirectionalContactJoint_SetSpin( t.tireId, spin );
+	b3World_Step( t.worldId, STEP_DT, SUB_STEPS );
+	float h = STEP_DT / SUB_STEPS;
+	float braked = (float)( SUB_STEPS - hook.fromSubStep );
+	ENSURE_SMALL( b3DirectionalContactJoint_GetSpin( t.tireId ) - ( spin - braked * hook.torque * h / spinInertia ), 1.0e-4f );
+	b3DestroyWorld( t.worldId );
+	return 0;
+}
+
 static int SlipDampedRowsAreImplicitDampers( void )
 {
 	const float subSteps = 240.0f;
@@ -886,5 +925,6 @@ int M31Test( void )
 	RUN_SUBTEST( TireDeflectsAndRollsOnTheEffectiveRadius );
 	RUN_SUBTEST( TireHopDecaysAtItsOwnDamping );
 	RUN_SUBTEST( SlipDampedRowsAreImplicitDampers );
+	RUN_SUBTEST( SubStepBrakeActsFromItsSubStep );
 	return 0;
 }

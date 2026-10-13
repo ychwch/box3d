@@ -192,6 +192,12 @@ void b3SubStep_SetSlipDamping( b3SubStepContext* context, b3JointId jointId, flo
 	joint->lateralDamping = lateral;
 }
 
+void b3SubStep_SetBrakeTorque( b3SubStepContext* context, b3JointId jointId, float torque )
+{
+	B3_ASSERT( b3IsValidFloat( torque ) && torque >= 0.0f );
+	b3SubStepJoint( context, jointId )->brakeTorque = torque;
+}
+
 void b3SubStep_SetNormalForce( b3SubStepContext* context, b3JointId jointId, float normalForce )
 {
 	b3SubStepJoint( context, jointId )->normalForce = normalForce;
