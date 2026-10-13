@@ -3,6 +3,8 @@
 
 #include "joint.h"
 
+#include "bitset.h"
+
 #include "body.h"
 #include "contact.h"
 #include "core.h"
@@ -1669,6 +1671,21 @@ void b3WarmStartJoints_Overflow( b3StepContext* context )
 	b3TracyCZoneEnd( prepare_joints );
 }
 
+void b3FlagJointOverload( b3StepContext* context, b3JointSim* joint, b3BitSet* flagged )
+{
+	if ( ( joint->forceThreshold < FLT_MAX || joint->torqueThreshold < FLT_MAX ) && b3GetBit( flagged, joint->jointId ) == false )
+	{
+		float force, torque;
+		b3GetJointReaction( context->world, joint, context->inv_h, &force, &torque );
+
+		// Check thresholds. A zero threshold means all awake joints get reported.
+		if ( force >= joint->forceThreshold || torque >= joint->torqueThreshold )
+		{
+			b3SetBit( flagged, joint->jointId );
+		}
+	}
+}
+
 void b3SolveJoints_Overflow( b3StepContext* context, bool useBias )
 {
 	b3TracyCZoneNC( solve_joints, "SolveJoints", b3_colorLemonChiffon, true );
@@ -1677,10 +1694,18 @@ void b3SolveJoints_Overflow( b3StepContext* context, bool useBias )
 	b3JointSim* joints = graph->colors[B3_OVERFLOW_INDEX].jointSims.data;
 	int jointCount = graph->colors[B3_OVERFLOW_INDEX].jointSims.count;
 
+	// The main thread, worker 0, solves the overflow set alone.
+	b3BitSet* flagged = &context->world->taskContexts.data[0].jointStateBitSet;
+
 	for ( int i = 0; i < jointCount; ++i )
 	{
 		b3JointSim* joint = joints + i;
 		b3SolveJoint( joint, context, useBias );
+
+		if ( useBias )
+		{
+			b3FlagJointOverload( context, joint, flagged );
+		}
 	}
 
 	b3TracyCZoneEnd( solve_joints );

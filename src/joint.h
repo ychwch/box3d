@@ -9,6 +9,7 @@
 
 #include "box3d/types.h"
 
+typedef struct b3BitSet b3BitSet;
 typedef struct b3DebugDraw b3DebugDraw;
 typedef struct b3StepContext b3StepContext;
 typedef struct b3World b3World;
@@ -369,6 +370,10 @@ void b3WarmStartJoints_Overflow( b3StepContext* context );
 void b3SolveJoints_Overflow( b3StepContext* context, bool useBias );
 
 void b3GetJointReaction( b3World* world, b3JointSim* sim, float invTimeStep, float* force, float* torque );
+
+// m31: flags a joint whose reaction reached its force or torque threshold during a biased solve. Colored and
+// overflow joints both report; upstream checked colored joints only.
+void b3FlagJointOverload( b3StepContext* context, b3JointSim* joint, b3BitSet* flagged );
 
 void b3DrawJoint( b3DebugDraw* draw, b3World* world, b3Joint* joint );
 

@@ -293,18 +293,9 @@ static void b3SolveJointsTask( b3SolverBlock block, b3StepContext* context, bool
 		b3JointSim* joint = joints + i;
 		b3SolveJoint( joint, context, useBias );
 
-		if ( useBias && ( joint->forceThreshold < FLT_MAX || joint->torqueThreshold < FLT_MAX ) &&
-			 b3GetBit( jointStateBitSet, joint->jointId ) == false )
+		if ( useBias )
 		{
-			float force, torque;
-			b3GetJointReaction( context->world, joint, context->inv_h, &force, &torque );
-
-			// Check thresholds. A zero threshold means all awake joints get reported.
-			if ( force >= joint->forceThreshold || torque >= joint->torqueThreshold )
-			{
-				// Flag this joint for processing.
-				b3SetBit( jointStateBitSet, joint->jointId );
-			}
+			b3FlagJointOverload( context, joint, jointStateBitSet );
 		}
 	}
 
