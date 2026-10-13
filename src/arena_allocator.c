@@ -19,10 +19,10 @@ b3Stack b3CreateStack( int capacity )
 
 void b3DestroyStack( b3Stack* stack )
 {
-	b3Free( stack->memory, stack->capacity );
+	b3Free( stack->memory, (size_t)stack->capacity );
 }
 
-void* b3StackAlloc( b3Stack* stack, int size, const char* name )
+void* b3StackAlloc( b3Stack* stack, size_t size, const char* name )
 {
 	if ( stack->entryCount == B3_MAX_STACK_ENTRIES )
 	{
@@ -30,7 +30,7 @@ void* b3StackAlloc( b3Stack* stack, int size, const char* name )
 		return NULL;
 	}
 
-	int alignedSize = ( ( size - 1 ) | ( B3_ALIGNMENT - 1 ) ) + 1;
+	int64_t alignedSize = ( ( (int64_t)size - 1 ) | ( B3_ALIGNMENT - 1 ) ) + 1;
 
 	b3StackEntry entry;
 	entry.size = alignedSize;
@@ -38,7 +38,7 @@ void* b3StackAlloc( b3Stack* stack, int size, const char* name )
 	if ( stack->index + alignedSize > stack->capacity )
 	{
 		// fall back to the heap (undesirable)
-		entry.data = (char*)b3Alloc( alignedSize );
+		entry.data = (char*)b3Alloc( (size_t)alignedSize );
 		entry.usedMalloc = true;
 
 		B3_ASSERT( ( (uintptr_t)entry.data & ( B3_ALIGNMENT - 1 ) ) == 0 );
@@ -71,7 +71,7 @@ void b3StackFree( b3Stack* stack, void* mem )
 	B3_ASSERT( mem == entry->data );
 	if ( entry->usedMalloc )
 	{
-		b3Free( mem, entry->size );
+		b3Free( mem, (size_t)entry->size );
 	}
 	else
 	{
@@ -88,23 +88,23 @@ void b3GrowStack( b3Stack* stack )
 
 	if ( stack->maxAllocation > stack->capacity )
 	{
-		b3Free( stack->memory, stack->capacity );
+		b3Free( stack->memory, (size_t)stack->capacity );
 		stack->capacity = stack->maxAllocation + stack->maxAllocation / 2;
-		stack->memory = (char*)b3Alloc( stack->capacity );
+		stack->memory = (char*)b3Alloc( (size_t)stack->capacity );
 	}
 }
 
-int b3GetStackCapacity( b3Stack* stack )
+int64_t b3GetStackCapacity( b3Stack* stack )
 {
 	return stack->capacity;
 }
 
-int b3GetStackAllocation( b3Stack* stack )
+int64_t b3GetStackAllocation( b3Stack* stack )
 {
 	return stack->allocation;
 }
 
-int b3GetMaxStackAllocation( b3Stack* stack )
+int64_t b3GetMaxStackAllocation( b3Stack* stack )
 {
 	return stack->maxAllocation;
 }

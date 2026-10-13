@@ -28,7 +28,7 @@ static inline int b3GetIdCapacity( const b3IdPool* pool )
 	return pool->nextIndex;
 }
 
-static inline int b3GetIdBytes( const b3IdPool* pool )
+static inline int64_t b3GetIdBytes( const b3IdPool* pool )
 {
 	return b3Array_ByteCount( pool->freeArray );
 }

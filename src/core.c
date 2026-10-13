@@ -14,8 +14,10 @@
 #include "rapidhash.h"
 
 #include "box3d/constants.h"
+#include "box3d/m31.h"
 #include "box3d/math_functions.h"
 
+#include <limits.h>
 #include <stdarg.h>
 #include <string.h>
 
@@ -125,12 +127,41 @@ int b3GetMaxManifoldPoints( void )
 static b3AllocFcn* b3_allocFcn = NULL;
 static b3FreeFcn* b3_freeFcn = NULL;
 
+static b3OutOfMemoryFcn* b3_outOfMemoryFcn = NULL;
+
 static b3AtomicI64 b3_byteCount;
 
 void b3SetAllocator( b3AllocFcn* allocFcn, b3FreeFcn* freeFcn )
 {
 	b3_allocFcn = allocFcn;
 	b3_freeFcn = freeFcn;
+}
+
+void b3SetOutOfMemoryFcn( b3OutOfMemoryFcn* fcn )
+{
+	b3_outOfMemoryFcn = fcn;
+}
+
+void b3OutOfMemory( size_t size )
+{
+	if ( b3_outOfMemoryFcn != NULL )
+	{
+		b3_outOfMemoryFcn( size, b3AtomicLoadI64( &b3_byteCount ) );
+	}
+	else
+	{
+		b3Log( "out of memory allocating %zu bytes", size );
+	}
+	abort();
+}
+
+int b3ClampCapacity( int64_t wanted, int64_t required, size_t elementSize )
+{
+	if ( required > INT_MAX )
+	{
+		b3OutOfMemory( (size_t)required * elementSize );
+	}
+	return wanted < INT_MAX ? (int)wanted : INT_MAX;
 }
 
 void* b3Alloc( size_t size )
@@ -140,7 +171,7 @@ void* b3Alloc( size_t size )
 		return NULL;
 	}
 
-	b3AtomicFetchAddI64( &b3_byteCount, (int)size );
+	b3AtomicFetchAddI64( &b3_byteCount, (int64_t)size );
 
 	// Allocation must be a multiple of B3_ALIGNMENT (required by spec).
 	// https://en.cppreference.com/w/c/memory/aligned_alloc
@@ -149,6 +180,10 @@ void* b3Alloc( size_t size )
 	if ( b3_allocFcn != NULL )
 	{
 		void* ptr = b3_allocFcn( alignedSize, B3_ALIGNMENT );
+		if ( ptr == NULL )
+		{
+			b3OutOfMemory( size );
+		}
 		b3TracyCAlloc( ptr, size );
 
 		B3_ASSERT( ptr != NULL );
@@ -170,6 +205,10 @@ void* b3Alloc( size_t size )
 	void* ptr = aligned_alloc( B3_ALIGNMENT, alignedSize );
 #endif
 
+	if ( ptr == NULL )
+	{
+		b3OutOfMemory( size );
+	}
 	b3TracyCAlloc( ptr, size );
 
 	B3_ASSERT( ptr != NULL );
@@ -204,7 +243,7 @@ void b3Free( void* mem, size_t size )
 	b3AtomicFetchAddI64( &b3_byteCount, -(int64_t)size );
 }
 
-void* b3GrowAlloc( void* oldMem, int oldSize, int newSize )
+void* b3GrowAlloc( void* oldMem, size_t oldSize, size_t newSize )
 {
 	B3_ASSERT( newSize > oldSize );
 	void* newMem = b3Alloc( newSize );
@@ -216,10 +255,10 @@ void* b3GrowAlloc( void* oldMem, int oldSize, int newSize )
 	return newMem;
 }
 
-void* b3GrowAllocZeroed( void* oldMem, int oldSize, int newSize )
+void* b3GrowAllocZeroed( void* oldMem, size_t oldSize, size_t newSize )
 {
 	void* newMem = b3GrowAlloc( oldMem, oldSize, newSize );
-	memset( (char*)newMem + oldSize, 0, (size_t)( newSize - oldSize ) );
+	memset( (char*)newMem + oldSize, 0, newSize - oldSize );
 	return newMem;
 }
 

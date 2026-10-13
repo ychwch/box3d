@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 M31 fork additions
 // SPDX-License-Identifier: MIT
 
-// Fork additions to Box3D: a serial sub-step hook and the directional contact joint.
+// Fork additions to Box3D: a serial sub-step hook, the directional contact joint, and memory limits.
 #pragma once
 
 #include "box3d.h"
@@ -9,6 +9,21 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/// Called when Box3D cannot get memory: an allocation of `size` bytes failed, or an array would pass INT_MAX
+/// elements. `byteCount` is what Box3D holds already. Box3D aborts when the function returns.
+typedef void b3OutOfMemoryFcn( size_t size, int64_t byteCount );
+
+/// Install or remove (NULL) the out-of-memory report. Without one, Box3D logs the size before aborting.
+B3_API void b3SetOutOfMemoryFcn( b3OutOfMemoryFcn* fcn );
+
+/// Most contacts the world holds (default INT_MAX). Past it a new pair gets no contact, so its shapes pass through
+/// each other; the pair is counted and found again when either proxy next moves. Contacts already made are kept.
+B3_API void b3World_SetContactCapacity( b3WorldId worldId, int capacity );
+B3_API int b3World_GetContactCapacity( b3WorldId worldId );
+
+/// Pairs refused a contact in the last step because the world was at its contact capacity.
+B3_API int b3World_GetRefusedContactCount( b3WorldId worldId );
 
 /// Opaque context passed to a sub-step callback. Valid only during the callback.
 typedef struct b3SubStepContext b3SubStepContext;

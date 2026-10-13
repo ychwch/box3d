@@ -46,6 +46,7 @@ set(BOX3D_SOURCE_FILES
 	joint.h
 	m31_joints.h
 	m31_substep.c
+	m31_world.c
 	manifold.c
 	manifold.h
 	math_functions.c

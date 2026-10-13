@@ -43,7 +43,7 @@
 #define b3Array_CreateN( a, n )                                                                                                  \
 	do                                                                                                                           \
 	{                                                                                                                            \
-		( a ).data = ( n ) > 0 ? b3GrowAlloc( NULL, 0, ( n ) * sizeof( *( a ).data ) ) : NULL;         \
+		( a ).data = ( n ) > 0 ? b3GrowAlloc( NULL, 0, (size_t)( n ) * sizeof( *( a ).data ) ) : NULL; \
 		( a ).count = 0;                                                                                                         \
 		( a ).capacity = ( n );                                                                                                  \
 	}                                                                                                                            \
@@ -64,8 +64,8 @@
 	{                                                                                                                            \
 		if ( ( a ).capacity < n )                                                                                                \
 		{                                                                                                                        \
-			int oldSize = ( a ).capacity * sizeof( *( a ).data );                                                                \
-			int newSize = ( n ) * sizeof( *( a ).data );                                                                         \
+			size_t oldSize = (size_t)( a ).capacity * sizeof( *( a ).data );                                                     \
+			size_t newSize = (size_t)( n ) * sizeof( *( a ).data );                                                              \
 			( a ).data = b3GrowAlloc( ( a ).data, oldSize, newSize );                                  \
 			( a ).capacity = ( n );                                                                                              \
 		}                                                                                                                        \
@@ -86,9 +86,10 @@
 	{                                                                                                                            \
 		if ( ( a ).count >= ( a ).capacity )                                                                                     \
 		{                                                                                                                        \
-			int oldSize = ( a ).capacity * sizeof( *( a ).data );                                                                \
-			int newCapacity = ( a ).capacity == 0 ? 8 : 2 * ( a ).capacity;                                                      \
-			int newSize = newCapacity * sizeof( *( a ).data );                                                                   \
+			size_t oldSize = (size_t)( a ).capacity * sizeof( *( a ).data );                                                     \
+			int newCapacity = b3ClampCapacity( ( a ).capacity == 0 ? 8 : 2 * (int64_t)( a ).capacity,                             \
+											   (int64_t)( a ).count + 1, sizeof( *( a ).data ) );                                \
+			size_t newSize = (size_t)newCapacity * sizeof( *( a ).data );                                                        \
 			( a ).data = b3GrowAlloc( ( a ).data, oldSize, newSize );                                  \
 			( a ).capacity = newCapacity;                                                                                        \
 		}                                                                                                                        \
@@ -117,14 +118,14 @@
 		int _n = ( n );                                                                                                          \
 		if ( ( a ).count + _n > ( a ).capacity )                                                                                 \
 		{                                                                                                                        \
-			int req = ( a ).count + _n;                                                                                          \
-			int newCapacity = req > 2 ? req + ( req >> 1 ) : 8;                                                                  \
-			int oldSize = ( a ).capacity * sizeof( *( a ).data );                                                                \
-			int newSize = newCapacity * sizeof( *( a ).data );                                                                   \
+			int64_t req = (int64_t)( a ).count + _n;                                                                             \
+			int newCapacity = b3ClampCapacity( req > 2 ? req + ( req >> 1 ) : 8, req, sizeof( *( a ).data ) );                  \
+			size_t oldSize = (size_t)( a ).capacity * sizeof( *( a ).data );                                                     \
+			size_t newSize = (size_t)newCapacity * sizeof( *( a ).data );                                                        \
 			( a ).data = b3GrowAlloc( ( a ).data, oldSize, newSize );                                  \
 			( a ).capacity = newCapacity;                                                                                        \
 		}                                                                                                                        \
-		memcpy( ( a ).data + ( a ).count, ( src ), _n * sizeof( *( a ).data ) );                                                 \
+		memcpy( ( a ).data + ( a ).count, ( src ), (size_t)_n * sizeof( *( a ).data ) );                                         \
 		( a ).count += _n;                                                                                                       \
 	}                                                                                                                            \
 	while ( 0 )
@@ -135,7 +136,7 @@
 	{                                                                                                                            \
 		if ( ( a ).capacity > 0 )                                                                                                \
 		{                                                                                                                        \
-			memset( ( a ).data, 0, ( a ).capacity * sizeof( *( a ).data ) );                                                     \
+			memset( ( a ).data, 0, (size_t)( a ).capacity * sizeof( *( a ).data ) );                                             \
 		}                                                                                                                        \
 	}                                                                                                                            \
 	while ( 0 )
@@ -144,28 +145,26 @@
 // B3_NULL_INDEX, otherwise it returns the index of the last element (which is now out of bounds).
 #define b3Array_RemoveSwap( a, index ) b3RemoveHelper( ( a ).data, &( a ).count, ( index ), sizeof( *( a ).data ) )
 
-B3_INLINE void* b3EmplaceHelper( void** data, int* count, int* capacity, int elem_size )
+B3_INLINE void* b3EmplaceHelper( void** data, int* count, int* capacity, size_t elem_size )
 {
 	if ( *count >= *capacity )
 	{
 		int oldCapacity = *capacity;
-		int oldSize = oldCapacity * elem_size;
-		int newCapacity = ( oldCapacity == 0 ? 16 : 2 * oldCapacity );
-		int newSize = newCapacity * elem_size;
-		*data = b3GrowAlloc( *data, oldSize, newSize );
+		int newCapacity = b3ClampCapacity( oldCapacity == 0 ? 16 : 2 * (int64_t)oldCapacity, (int64_t)*count + 1, elem_size );
+		*data = b3GrowAlloc( *data, (size_t)oldCapacity * elem_size, (size_t)newCapacity * elem_size );
 		*capacity = newCapacity;
 	}
-	return (char*)*data + ( *count )++ * elem_size;
+	return (char*)*data + (size_t)( *count )++ * elem_size;
 }
 
-B3_INLINE int b3RemoveHelper( void* data, int* count, int index, int elementSize )
+B3_INLINE int b3RemoveHelper( void* data, int* count, int index, size_t elementSize )
 {
 	B3_ASSERT( 0 <= index && index < *count && "Array index out of bounds" );
 
 	( *count )--;
 	if ( index != *count )
 	{
-		memcpy( (char*)data + index * elementSize, (char*)data + ( *count ) * elementSize, elementSize );
+		memcpy( (char*)data + (size_t)index * elementSize, (char*)data + (size_t)( *count ) * elementSize, elementSize );
 		return *count;
 	}
 
@@ -179,7 +178,7 @@ B3_INLINE int b3RemoveHelper( void* data, int* count, int index, int elementSize
 	}                                                                                                                            \
 	while ( 0 )
 
-#define b3Array_ByteCount( a ) ( ( a ).capacity * (int)sizeof( *( a ).data ) )
+#define b3Array_ByteCount( a ) ( (int64_t)( a ).capacity * (int64_t)sizeof( *( a ).data ) )
 
 b3DeclareArrayNative( int );
 b3DeclareArrayNative( uint64_t );

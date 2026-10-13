@@ -1564,7 +1564,7 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 		b3BlockDim meshPrepareDim = b3ComputeBlockCount( meshGroupCount, minContactsPerBlock, maxBlockCount );
 		b3BlockDim jointPrepareDim = b3ComputeBlockCount( jointCount, minJointsPerBlock, maxBlockCount );
 
-		int wideContactByteCount = b3GetWideContactConstraintByteCount( world->simdWidth );
+		size_t wideContactByteCount = (size_t)b3GetWideContactConstraintByteCount( world->simdWidth );
 		void* wideConstraints = b3StackAlloc( &world->stack, wideContactCount * wideContactByteCount, "wide contacts" );
 
 		int* meshLaneOrder = b3StackAlloc( &world->stack, meshContactCount * sizeof( int ), "mesh lane order" );
@@ -1644,8 +1644,8 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 			b3StackFree( &world->stack, bucketStarts );
 		}
 
-		int wideMeshConstraintByteCount = b3GetWideMeshConstraintByteCount( world->simdWidth );
-		int wideMeshManifoldByteCount = b3GetWideMeshManifoldByteCount( world->simdWidth );
+		size_t wideMeshConstraintByteCount = (size_t)b3GetWideMeshConstraintByteCount( world->simdWidth );
+		size_t wideMeshManifoldByteCount = (size_t)b3GetWideMeshManifoldByteCount( world->simdWidth );
 		void* wideMeshConstraints =
 			b3StackAlloc( &world->stack, meshGroupCount * wideMeshConstraintByteCount + meshSlotCount * wideMeshManifoldByteCount,
 						  "wide mesh constraints" );

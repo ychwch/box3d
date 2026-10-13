@@ -29,6 +29,7 @@
 
 #include <float.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -336,6 +337,7 @@ b3WorldId b3CreateWorld( const b3WorldDef* def )
 	world->contactHertz = def->contactHertz;
 	world->contactDampingRatio = def->contactDampingRatio;
 	world->contactRecycleDistance = B3_CONTACT_RECYCLE_DISTANCE;
+	world->contactCapacity = INT_MAX;
 
 	if ( def->frictionCallback == NULL )
 	{
@@ -1094,6 +1096,7 @@ void b3World_Step( b3WorldId worldId, float timeStep, int subStepCount )
 	// Update collision pairs and create contacts
 	{
 		uint64_t pairTicks = b3GetTicks();
+		world->refusedContactCount = 0;
 		b3UpdateBroadPhasePairs( world );
 		world->profile.pairs = b3GetMilliseconds( pairTicks );
 	}
@@ -2327,27 +2330,27 @@ static uint64_t b3GetWorldByteCount( b3World* world, bool log )
 	uint64_t total = 0;
 
 	// id pools
-	int bodyIdBytes = b3GetIdBytes( &world->bodyIdPool );
-	int solverSetIdBytes = b3GetIdBytes( &world->solverSetIdPool );
-	int jointIdBytes = b3GetIdBytes( &world->jointIdPool );
-	int contactIdBytes = b3GetIdBytes( &world->contactIdPool );
-	int islandIdBytes = b3GetIdBytes( &world->islandIdPool );
-	int shapeIdBytes = b3GetIdBytes( &world->shapeIdPool );
+	int64_t bodyIdBytes = b3GetIdBytes( &world->bodyIdPool );
+	int64_t solverSetIdBytes = b3GetIdBytes( &world->solverSetIdPool );
+	int64_t jointIdBytes = b3GetIdBytes( &world->jointIdPool );
+	int64_t contactIdBytes = b3GetIdBytes( &world->contactIdPool );
+	int64_t islandIdBytes = b3GetIdBytes( &world->islandIdPool );
+	int64_t shapeIdBytes = b3GetIdBytes( &world->shapeIdPool );
 	total += (uint64_t)bodyIdBytes + solverSetIdBytes + jointIdBytes + contactIdBytes + islandIdBytes + shapeIdBytes;
 
 	if ( log )
 	{
 		b3Log( "id pools" );
-		b3Log( "body ids: %d", bodyIdBytes );
-		b3Log( "solver set ids: %d", solverSetIdBytes );
-		b3Log( "joint ids: %d", jointIdBytes );
-		b3Log( "contact ids: %d", contactIdBytes );
-		b3Log( "island ids: %d", islandIdBytes );
-		b3Log( "shape ids: %d", shapeIdBytes );
+		b3Log( "body ids: %lld", (long long)bodyIdBytes );
+		b3Log( "solver set ids: %lld", (long long)solverSetIdBytes );
+		b3Log( "joint ids: %lld", (long long)jointIdBytes );
+		b3Log( "contact ids: %lld", (long long)contactIdBytes );
+		b3Log( "island ids: %lld", (long long)islandIdBytes );
+		b3Log( "shape ids: %lld", (long long)shapeIdBytes );
 	}
 
 	// Islands own per-island body/contact/joint link arrays
-	int islandLinkBytes = 0;
+	int64_t islandLinkBytes = 0;
 	for ( int i = 0; i < world->islands.count; ++i )
 	{
 		b3Island* island = world->islands.data + i;
@@ -2357,31 +2360,31 @@ static uint64_t b3GetWorldByteCount( b3World* world, bool log )
 	}
 
 	// world arrays
-	int bodyArrayBytes = b3Array_ByteCount( world->bodies );
-	int solverSetArrayBytes = b3Array_ByteCount( world->solverSets );
-	int jointArrayBytes = b3Array_ByteCount( world->joints );
-	int contactArrayBytes = b3Array_ByteCount( world->contacts );
-	int islandArrayBytes = b3Array_ByteCount( world->islands );
-	int shapeArrayBytes = b3Array_ByteCount( world->shapes );
-	int sensorArrayBytes = b3Array_ByteCount( world->sensors );
+	int64_t bodyArrayBytes = b3Array_ByteCount( world->bodies );
+	int64_t solverSetArrayBytes = b3Array_ByteCount( world->solverSets );
+	int64_t jointArrayBytes = b3Array_ByteCount( world->joints );
+	int64_t contactArrayBytes = b3Array_ByteCount( world->contacts );
+	int64_t islandArrayBytes = b3Array_ByteCount( world->islands );
+	int64_t shapeArrayBytes = b3Array_ByteCount( world->shapes );
+	int64_t sensorArrayBytes = b3Array_ByteCount( world->sensors );
 	total += (uint64_t)bodyArrayBytes + solverSetArrayBytes + jointArrayBytes + contactArrayBytes + islandArrayBytes +
 			 islandLinkBytes + shapeArrayBytes + sensorArrayBytes;
 
 	if ( log )
 	{
 		b3Log( "world arrays" );
-		b3Log( "bodies: %d", bodyArrayBytes );
-		b3Log( "solver sets: %d", solverSetArrayBytes );
-		b3Log( "joints: %d", jointArrayBytes );
-		b3Log( "contacts: %d", contactArrayBytes );
-		b3Log( "islands: %d", islandArrayBytes );
-		b3Log( "island links: %d", islandLinkBytes );
-		b3Log( "shapes: %d", shapeArrayBytes );
-		b3Log( "sensors: %d", sensorArrayBytes );
+		b3Log( "bodies: %lld", (long long)bodyArrayBytes );
+		b3Log( "solver sets: %lld", (long long)solverSetArrayBytes );
+		b3Log( "joints: %lld", (long long)jointArrayBytes );
+		b3Log( "contacts: %lld", (long long)contactArrayBytes );
+		b3Log( "islands: %lld", (long long)islandArrayBytes );
+		b3Log( "island links: %lld", (long long)islandLinkBytes );
+		b3Log( "shapes: %lld", (long long)shapeArrayBytes );
+		b3Log( "sensors: %lld", (long long)sensorArrayBytes );
 	}
 
 	// Sensors own overlap tracking arrays. The sensor array is dense.
-	int sensorOverlapBytes = 0;
+	int64_t sensorOverlapBytes = 0;
 	for ( int i = 0; i < world->sensors.count; ++i )
 	{
 		b3Sensor* sensor = world->sensors.data + i;
@@ -2394,7 +2397,7 @@ static uint64_t b3GetWorldByteCount( b3World* world, bool log )
 	if ( log )
 	{
 		b3Log( "owned arrays" );
-		b3Log( "sensor overlaps: %d", sensorOverlapBytes );
+		b3Log( "sensor overlaps: %lld", (long long)sensorOverlapBytes );
 	}
 
 	// Shared hull database. The map owns a combined bucket and metadata allocation
@@ -2418,47 +2421,47 @@ static uint64_t b3GetWorldByteCount( b3World* world, bool log )
 	}
 
 	// broad-phase
-	int staticTreeBytes = b3DynamicTree_GetByteCount( world->broadPhase.trees + b3_staticBody );
-	int kinematicTreeBytes = b3DynamicTree_GetByteCount( world->broadPhase.trees + b3_kinematicBody );
-	int dynamicTreeBytes = b3DynamicTree_GetByteCount( world->broadPhase.trees + b3_dynamicBody );
+	int64_t staticTreeBytes = b3DynamicTree_GetByteCount( world->broadPhase.trees + b3_staticBody );
+	int64_t kinematicTreeBytes = b3DynamicTree_GetByteCount( world->broadPhase.trees + b3_kinematicBody );
+	int64_t dynamicTreeBytes = b3DynamicTree_GetByteCount( world->broadPhase.trees + b3_dynamicBody );
 	b3HashSet* pairSet = &world->broadPhase.pairSet;
-	int pairSetBytes = b3GetHashSetBytes( pairSet );
+	int64_t pairSetBytes = b3GetHashSetBytes( pairSet );
 	total += (uint64_t)staticTreeBytes + kinematicTreeBytes + dynamicTreeBytes + pairSetBytes;
 
 	if ( log )
 	{
 		b3Log( "broad-phase" );
-		b3Log( "static tree: %d", staticTreeBytes );
-		b3Log( "kinematic tree: %d", kinematicTreeBytes );
-		b3Log( "dynamic tree: %d", dynamicTreeBytes );
-		b3Log( "pairSet: %d (%d, %d)", pairSetBytes, pairSet->count, pairSet->capacity );
+		b3Log( "static tree: %lld", (long long)staticTreeBytes );
+		b3Log( "kinematic tree: %lld", (long long)kinematicTreeBytes );
+		b3Log( "dynamic tree: %lld", (long long)dynamicTreeBytes );
+		b3Log( "pairSet: %lld (%d, %d)", (long long)pairSetBytes, pairSet->count, pairSet->capacity );
 	}
 
 	// Manifold block allocators, one per manifold point count
-	int manifoldArrayBytes = b3Array_ByteCount( world->manifoldAllocators );
-	int manifoldBlockBytes = 0;
+	int64_t manifoldArrayBytes = b3Array_ByteCount( world->manifoldAllocators );
+	int64_t manifoldBlockBytes = 0;
 	for ( int i = 0; i < world->manifoldAllocators.count; ++i )
 	{
 		b3BlockAllocator* allocator = world->manifoldAllocators.data + i;
 		manifoldBlockBytes += b3Array_ByteCount( allocator->blocks );
-		manifoldBlockBytes += allocator->blocks.count * B3_BLOCK_SIZE * allocator->elementSize;
+		manifoldBlockBytes += (int64_t)allocator->blocks.count * B3_BLOCK_SIZE * allocator->elementSize;
 	}
 	total += (uint64_t)manifoldArrayBytes + manifoldBlockBytes;
 
 	if ( log )
 	{
 		b3Log( "manifold allocators" );
-		b3Log( "allocator array: %d", manifoldArrayBytes );
-		b3Log( "blocks: %d", manifoldBlockBytes );
+		b3Log( "allocator array: %lld", (long long)manifoldArrayBytes );
+		b3Log( "blocks: %lld", (long long)manifoldBlockBytes );
 	}
 
 	// solver sets
-	int bodySimCapacity = 0;
-	int bodyStateCapacity = 0;
-	int jointSimCapacity = 0;
-	int contactIndexCapacity = 0;
-	int islandSimCapacity = 0;
-	int solverSetCapacity = world->solverSets.count;
+	int64_t bodySimCapacity = 0;
+	int64_t bodyStateCapacity = 0;
+	int64_t jointSimCapacity = 0;
+	int64_t contactIndexCapacity = 0;
+	int64_t islandSimCapacity = 0;
+	int64_t solverSetCapacity = world->solverSets.count;
 	for ( int i = 0; i < solverSetCapacity; ++i )
 	{
 		b3SolverSet* set = world->solverSets.data + i;
@@ -2474,27 +2477,27 @@ static uint64_t b3GetWorldByteCount( b3World* world, bool log )
 		islandSimCapacity += set->islandSims.capacity;
 	}
 
-	int setBodySimBytes = bodySimCapacity * (int)sizeof( b3BodySim );
-	int setBodyStateBytes = bodyStateCapacity * (int)sizeof( b3BodyState );
-	int setJointSimBytes = jointSimCapacity * (int)sizeof( b3JointSim );
-	int setContactSimBytes = contactIndexCapacity * (int)sizeof( int );
-	int setIslandSimBytes = islandSimCapacity * (int)sizeof( b3IslandSim );
+	int64_t setBodySimBytes = bodySimCapacity * (int64_t)sizeof( b3BodySim );
+	int64_t setBodyStateBytes = bodyStateCapacity * (int64_t)sizeof( b3BodyState );
+	int64_t setJointSimBytes = jointSimCapacity * (int64_t)sizeof( b3JointSim );
+	int64_t setContactSimBytes = contactIndexCapacity * (int64_t)sizeof( int );
+	int64_t setIslandSimBytes = islandSimCapacity * (int64_t)sizeof( b3IslandSim );
 	total += (uint64_t)setBodySimBytes + setBodyStateBytes + setJointSimBytes + setContactSimBytes + setIslandSimBytes;
 
 	if ( log )
 	{
 		b3Log( "solver sets" );
-		b3Log( "body sim: %d", setBodySimBytes );
-		b3Log( "body state: %d", setBodyStateBytes );
-		b3Log( "joint sim: %d", setJointSimBytes );
-		b3Log( "contact sim: %d", setContactSimBytes );
-		b3Log( "island sim: %d", setIslandSimBytes );
+		b3Log( "body sim: %lld", (long long)setBodySimBytes );
+		b3Log( "body state: %lld", (long long)setBodyStateBytes );
+		b3Log( "joint sim: %lld", (long long)setJointSimBytes );
+		b3Log( "contact sim: %lld", (long long)setContactSimBytes );
+		b3Log( "island sim: %lld", (long long)setIslandSimBytes );
 	}
 
 	// constraint graph
-	int bodyBitSetBytes = 0;
-	int graphContactBytes = 0;
-	int graphJointSimBytes = 0;
+	int64_t bodyBitSetBytes = 0;
+	int64_t graphContactBytes = 0;
+	int64_t graphJointSimBytes = 0;
 	for ( int i = 0; i < B3_GRAPH_COLOR_COUNT; ++i )
 	{
 		b3GraphColor* c = world->constraintGraph.colors + i;
@@ -2507,13 +2510,13 @@ static uint64_t b3GetWorldByteCount( b3World* world, bool log )
 	if ( log )
 	{
 		b3Log( "constraint graph" );
-		b3Log( "body bit sets: %d", bodyBitSetBytes );
-		b3Log( "joint sim: %d", graphJointSimBytes );
-		b3Log( "contact sim: %d", graphContactBytes );
+		b3Log( "body bit sets: %lld", (long long)bodyBitSetBytes );
+		b3Log( "joint sim: %lld", (long long)graphJointSimBytes );
+		b3Log( "contact sim: %lld", (long long)graphContactBytes );
 	}
 
 	// Per worker task storage and its bit sets
-	int taskContextBytes = b3Array_ByteCount( world->taskContexts );
+	int64_t taskContextBytes = b3Array_ByteCount( world->taskContexts );
 	for ( int i = 0; i < world->taskContexts.count; ++i )
 	{
 		b3TaskContext* taskContext = world->taskContexts.data + i;
@@ -2525,7 +2528,7 @@ static uint64_t b3GetWorldByteCount( b3World* world, bool log )
 		taskContextBytes += b3GetBitSetBytes( &taskContext->awakeIslandBitSet );
 	}
 
-	int sensorTaskContextBytes = b3Array_ByteCount( world->sensorTaskContexts );
+	int64_t sensorTaskContextBytes = b3Array_ByteCount( world->sensorTaskContexts );
 	for ( int i = 0; i < world->sensorTaskContexts.count; ++i )
 	{
 		b3SensorTaskContext* taskContext = world->sensorTaskContexts.data + i;
@@ -2536,12 +2539,12 @@ static uint64_t b3GetWorldByteCount( b3World* world, bool log )
 	if ( log )
 	{
 		b3Log( "task contexts" );
-		b3Log( "worker: %d", taskContextBytes );
-		b3Log( "sensor: %d", sensorTaskContextBytes );
+		b3Log( "worker: %lld", (long long)taskContextBytes );
+		b3Log( "sensor: %lld", (long long)sensorTaskContextBytes );
 	}
 
 	// Double buffered event arrays
-	int eventBytes = 0;
+	int64_t eventBytes = 0;
 	eventBytes += b3Array_ByteCount( world->bodyMoveEvents );
 	eventBytes += b3Array_ByteCount( world->sensorBeginEvents );
 	eventBytes += b3Array_ByteCount( world->contactBeginEvents );
@@ -2555,11 +2558,11 @@ static uint64_t b3GetWorldByteCount( b3World* world, bool log )
 
 	if ( log )
 	{
-		b3Log( "events: %d", eventBytes );
+		b3Log( "events: %lld", (long long)eventBytes );
 	}
 
 	// Debug draw bit sets
-	int debugBytes = 0;
+	int64_t debugBytes = 0;
 	debugBytes += b3GetBitSetBytes( &world->debugBodySet );
 	debugBytes += b3GetBitSetBytes( &world->debugJointSet );
 	debugBytes += b3GetBitSetBytes( &world->debugContactSet );
@@ -2568,7 +2571,7 @@ static uint64_t b3GetWorldByteCount( b3World* world, bool log )
 
 	if ( log )
 	{
-		b3Log( "debug draw: %d", debugBytes );
+		b3Log( "debug draw: %lld", (long long)debugBytes );
 	}
 
 	// stack allocator
@@ -2576,8 +2579,8 @@ static uint64_t b3GetWorldByteCount( b3World* world, bool log )
 
 	if ( log )
 	{
-		b3Log( "stack allocator: %d", world->stack.capacity );
-		b3Log( "total: %u KB", (uint32_t)( total / 1024 ) );
+		b3Log( "stack allocator: %lld", (long long)world->stack.capacity );
+		b3Log( "total: %llu KB", (unsigned long long)( total / 1024 ) );
 	}
 
 	return total;
@@ -2619,7 +2622,7 @@ b3Counters b3World_GetCounters( b3WorldId worldId )
 	s.satCallCount = world->satCallCount;
 	s.satCacheHitCount = world->satCacheHitCount;
 	memcpy( s.manifoldCounts, world->manifoldCounts, B3_CONTACT_MANIFOLD_COUNT_BUCKETS * sizeof( int ) );
-	s.stackUsed = world->stack.maxAllocation;
+	s.stackUsed = world->stack.maxAllocation < INT_MAX ? (int)world->stack.maxAllocation : INT_MAX;
 	s.byteCount = (int64_t)b3GetWorldByteCount( world, false );
 	s.taskCount = world->taskCount;
 

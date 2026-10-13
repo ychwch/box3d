@@ -267,6 +267,10 @@ typedef struct b3World
 	b3SubStepFcn* subStepFcn;
 	void* subStepContext;
 
+	// m31: most contacts the world holds, and the pairs refused a contact in the last step for want of capacity.
+	int contactCapacity;
+	int refusedContactCount;
+
 	int workerCount;
 	int simdWidth;
 	b3EnqueueTaskCallback* enqueueTaskFcn;

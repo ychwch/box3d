@@ -163,6 +163,14 @@ void b3CreateContact( b3World* world, b3Shape* shapeA, b3Shape* shapeB, int chil
 		return;
 	}
 
+	// m31: past the world's contact capacity a pair gets no contact. It is counted, and found again when a proxy next
+	// moves. Pairs arrive sorted, so which ones are refused is deterministic.
+	if ( b3GetIdCount( &world->contactIdPool ) >= world->contactCapacity )
+	{
+		world->refusedContactCount += 1;
+		return;
+	}
+
 	b3Body* bodyA = b3Array_Get( world->bodies, shapeA->bodyId );
 	b3Body* bodyB = b3Array_Get( world->bodies, shapeB->bodyId );
 

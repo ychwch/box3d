@@ -157,11 +157,19 @@ typedef struct b3AtomicI64
 void* b3Alloc( size_t size );
 void* b3AllocZero( size_t size );
 void b3Free( void* mem, size_t size );
-void* b3GrowAlloc( void* oldMem, int oldSize, int newSize );
-void* b3GrowAllocZeroed( void* oldMem, int oldSize, int newSize );
+void* b3GrowAlloc( void* oldMem, size_t oldSize, size_t newSize );
+void* b3GrowAllocZeroed( void* oldMem, size_t oldSize, size_t newSize );
 
-#define B3_GROW( A, N, M ) b3GrowAlloc( ( A ), (int)( ( N ) * sizeof( *( A ) ) ), (int)( ( M ) * sizeof( *( A ) ) ) )
-#define B3_GROW_ZERO( A, N, M ) b3GrowAllocZeroed( ( A ), (int)( ( N ) * sizeof( *( A ) ) ), (int)( ( M ) * sizeof( *( A ) ) ) )
+// m31: byte sizes are size_t. Upstream held them in int, which wrapped at 2 GiB and crashed in memcpy at 16.7 M contacts.
+#define B3_GROW( A, N, M ) b3GrowAlloc( ( A ), (size_t)( N ) * sizeof( *( A ) ), (size_t)( M ) * sizeof( *( A ) ) )
+#define B3_GROW_ZERO( A, N, M ) b3GrowAllocZeroed( ( A ), (size_t)( N ) * sizeof( *( A ) ), (size_t)( M ) * sizeof( *( A ) ) )
+
+// m31: the capacity an int-counted array grows to, `wanted` clamped to INT_MAX. An array that needs more than INT_MAX
+// elements cannot grow: that is reported through b3OutOfMemory and is fatal.
+int b3ClampCapacity( int64_t wanted, int64_t required, size_t elementSize );
+
+// m31: reports a failed allocation of `size` bytes and aborts. Box3D cannot continue without the memory.
+void b3OutOfMemory( size_t size );
 
 B3_PRINTF_FORMAT( 1, 2 )
 void b3Log( const char* format, ... );
