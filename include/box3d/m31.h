@@ -164,6 +164,11 @@ B3_API void b3DirectionalContactJoint_SetGround( b3JointId jointId, b3BodyId gro
 /// Friction coefficients bounding the longitudinal and lateral rows (impulse <= mu * normal impulse).
 B3_API void b3DirectionalContactJoint_SetFriction( b3JointId jointId, float longitudinal, float lateral );
 
+/// Slip damping (N s/m) of the longitudinal and lateral rows. 0, the default, is a rigid row: it drives the slip
+/// velocity to zero within its bound. c > 0 makes the row a damper, impulse = -c h * slip velocity, solved implicitly
+/// once per sub-step: a tire's force-slip curve as its secant, C / (r |ω| + v0), stable at any stiffness.
+B3_API void b3DirectionalContactJoint_SetSlipDamping( b3JointId jointId, float longitudinal, float lateral );
+
 /// Steering angle (rad) about the hard point's y-axis, positive to the left.
 B3_API void b3DirectionalContactJoint_SetSteerAngle( b3JointId jointId, float angle );
 
@@ -193,6 +198,7 @@ B3_API void b3SubStep_SetSpring( b3SubStepContext* context, b3JointId jointId, f
 /// Friction coefficients and external normal force (N) for the coming sub-step.
 B3_API void b3SubStep_SetFriction( b3SubStepContext* context, b3JointId jointId, float longitudinal, float lateral );
 B3_API void b3SubStep_SetNormalForce( b3SubStepContext* context, b3JointId jointId, float normalForce );
+B3_API void b3SubStep_SetSlipDamping( b3SubStepContext* context, b3JointId jointId, float longitudinal, float lateral );
 
 /// Suspension joint: a chassis (body A) and an unsprung body (body B), a wheel hub or a solid axle.
 /// Frame A is the mount: travel along y, forward x, axle z. Frame B is the matching point on the unsprung body.

@@ -29,6 +29,8 @@ typedef struct b3DirectionalContactJoint
 	float brakeTorque;
 	float longitudinalFriction;
 	float lateralFriction;
+	float longitudinalDamping; // N s/m; 0 is a rigid row
+	float lateralDamping;
 	float normalForce;
 	float restLength;
 	// The contact point is the joint's frame B origin, so the joint's force acts there and its torque is zero.

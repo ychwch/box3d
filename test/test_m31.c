@@ -833,6 +833,42 @@ static int TireHopDecaysAtItsOwnDamping( void )
 	return 0;
 }
 
+// A slip-damped row is a damper: pushed sideways by a steady force F, the hub slides at F / c. With a damper far past
+// what an explicit force could take (c h / m of 1000) it settles as fast, without ringing.
+static int SlipDampedRowsAreImplicitDampers( void )
+{
+	const float subSteps = 240.0f;
+	float dampings[2] = { 4000.0f, 1000.0f * HUB_MASS * subSteps };
+	for ( int run = 0; run < 2; ++run )
+	{
+		TireRig t = CreateTireRig( HUB_MASS );
+		float c = dampings[run];
+		b3DirectionalContactJoint_SetSlipDamping( t.tireId, 0.0f, c );
+		// Loaded first: the friction bound is the normal impulse.
+		for ( int i = 0; i < 60; ++i )
+		{
+			ProbeTire( &t, 0.0f );
+			b3World_Step( t.worldId, STEP_DT, SUB_STEPS );
+		}
+		const float push = 500.0f;
+		float steady = push / c;
+		float fastest = 0.0f;
+		float vz = 0.0f;
+		for ( int i = 0; i < 240; ++i )
+		{
+			ProbeTire( &t, 0.0f );
+			b3Body_ApplyForceToCenter( t.hubId, ( b3Vec3 ){ 0.0f, 0.0f, push }, true );
+			b3World_Step( t.worldId, STEP_DT, SUB_STEPS );
+			vz = b3Body_GetLinearVelocity( t.hubId ).z;
+			fastest = b3MaxFloat( fastest, vz );
+		}
+		ENSURE_SMALL( vz - steady, 0.01f * steady );
+		ENSURE( fastest <= 1.01f * steady );
+		b3DestroyWorld( t.worldId );
+	}
+	return 0;
+}
+
 int M31Test( void )
 {
 	RUN_SUBTEST( CapacityGrowsInSixtyFourBits );
@@ -849,5 +885,6 @@ int M31Test( void )
 	RUN_SUBTEST( SolidAxleRollsOnItsSeats );
 	RUN_SUBTEST( TireDeflectsAndRollsOnTheEffectiveRadius );
 	RUN_SUBTEST( TireHopDecaysAtItsOwnDamping );
+	RUN_SUBTEST( SlipDampedRowsAreImplicitDampers );
 	return 0;
 }

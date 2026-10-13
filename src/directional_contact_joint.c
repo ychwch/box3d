@@ -188,6 +188,15 @@ void b3DirectionalContactJoint_SetFriction( b3JointId jointId, float longitudina
 	joint->lateralFriction = lateral;
 }
 
+void b3DirectionalContactJoint_SetSlipDamping( b3JointId jointId, float longitudinal, float lateral )
+{
+	B3_ASSERT( b3IsValidFloat( longitudinal ) && longitudinal >= 0.0f );
+	B3_ASSERT( b3IsValidFloat( lateral ) && lateral >= 0.0f );
+	b3DirectionalContactJoint* joint = b3GetDirectionalContactJoint( jointId );
+	joint->longitudinalDamping = longitudinal;
+	joint->lateralDamping = lateral;
+}
+
 void b3DirectionalContactJoint_SetSteerAngle( b3JointId jointId, float angle )
 {
 	b3GetDirectionalContactJoint( jointId )->steerAngle = angle;
@@ -348,6 +357,27 @@ void b3PrepareDirectionalContactJoint( b3JointSim* base, b3StepContext* context 
 	}
 }
 
+// A friction row's impulse increment. Rigid (damping 0): drive the slip velocity to zero, in both passes. A slip
+// damper (damping c > 0): the impulse is -c h times the slip velocity at the end of the sub-step, solved implicitly,
+// once per sub-step in the solve pass, as the springs are (b3MakePhysicalSpring): the soft row with a2 = c h / m.
+static float b3FrictionIncrement( float mass, float cdot, float accumulated, float damping, float h, bool useBias, bool* applied )
+{
+	if ( damping <= 0.0f )
+	{
+		*applied = true;
+		return -mass * cdot;
+	}
+	if ( useBias == false || mass <= 0.0f )
+	{
+		*applied = false;
+		return 0.0f;
+	}
+	*applied = true;
+	float a2 = damping * h / mass;
+	float a3 = 1.0f / ( 1.0f + a2 );
+	return -a2 * a3 * mass * cdot - a3 * accumulated;
+}
+
 typedef struct b3DirectionalFrame
 {
 	b3Vec3 rA, rB, n, lon, lat;
@@ -484,13 +514,16 @@ void b3SolveDirectionalContactJoint( b3JointSim* base, b3StepContext* context, b
 		float r = joint->rollingRadius;
 
 		float oldL = joint->longitudinalImpulse;
-		float newL;
+		float newL = oldL;
+		float h = context->h;
+		bool applied = false;
 
 		bool locked = false;
 		if ( invI > 0.0f && maxB > 0.0f )
 		{
 			// Candidate: the brake holds the wheel at zero spin.
-			float lockedL = b3ClampFloat( oldL - joint->longitudinalMassLocked * vr, -maxL, maxL );
+			float lockedDelta = b3FrictionIncrement( joint->longitudinalMassLocked, vr, oldL, joint->longitudinalDamping, h, useBias, &applied );
+			float lockedL = b3ClampFloat( oldL + lockedDelta, -maxL, maxL );
 			float dB = r * ( lockedL - oldL ) - spin / invI;
 			float lockedB = joint->brakeImpulse + dB;
 			if ( b3AbsFloat( lockedB ) <= maxB )
@@ -519,7 +552,8 @@ void b3SolveDirectionalContactJoint( b3JointSim* base, b3StepContext* context, b
 		{
 			float cdot = vr - spin * r;
 			float mass = invI > 0.0f ? joint->longitudinalMassFree : joint->longitudinalMassLocked;
-			newL = b3ClampFloat( oldL - mass * cdot, -maxL, maxL );
+			float delta = b3FrictionIncrement( mass, cdot, oldL, joint->longitudinalDamping, h, useBias, &applied );
+			newL = applied ? b3ClampFloat( oldL + delta, -maxL, maxL ) : oldL;
 			spin -= invI * r * ( newL - oldL );
 		}
 
@@ -539,7 +573,9 @@ void b3SolveDirectionalContactJoint( b3JointSim* base, b3StepContext* context, b
 		float cdot = b3Dot( f.lat, b3Sub( vA, vB ) ) + b3Dot( stA, wA ) - b3Dot( stB, wB );
 		float maxT = joint->lateralFriction * normalImpulse;
 		float oldT = joint->lateralImpulse;
-		float newT = b3ClampFloat( oldT - joint->lateralMass * cdot, -maxT, maxT );
+		bool applied = false;
+		float delta = b3FrictionIncrement( joint->lateralMass, cdot, oldT, joint->lateralDamping, context->h, useBias, &applied );
+		float newT = applied ? b3ClampFloat( oldT + delta, -maxT, maxT ) : oldT;
 		float impulse = newT - oldT;
 		joint->lateralImpulse = newT;
 

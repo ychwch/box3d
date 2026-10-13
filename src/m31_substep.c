@@ -185,6 +185,13 @@ void b3SubStep_SetFriction( b3SubStepContext* context, b3JointId jointId, float 
 	joint->lateralFriction = lateral;
 }
 
+void b3SubStep_SetSlipDamping( b3SubStepContext* context, b3JointId jointId, float longitudinal, float lateral )
+{
+	b3DirectionalContactJoint* joint = b3SubStepJoint( context, jointId );
+	joint->longitudinalDamping = longitudinal;
+	joint->lateralDamping = lateral;
+}
+
 void b3SubStep_SetNormalForce( b3SubStepContext* context, b3JointId jointId, float normalForce )
 {
 	b3SubStepJoint( context, jointId )->normalForce = normalForce;
