@@ -808,7 +808,7 @@ B3_FORCE_INLINE bool b3PrepareConstraintW( b3ContactConstraintWide* c, b3Contact
 			b3ContactConstraintPointWide* cp = cm->points + pointIndex;
 			b3FloatW pointMask = b3GreaterThanW( pointCountW, b3SplatW( (float)pointIndex ) );
 			b3Vec3W d = b3SubVW( cp->anchorAs, centerA );
-			cp->leverArms = b3BlendW( zeroW, b3SqrtW( b3DotW( d, d ) ), pointMask );
+			cp->leverArms = b3BlendW( zeroW, b3MaxW( b3SqrtW( b3DotW( d, d ) ), b3SplatW( B3_MIN_TWIST_LEVER_ARM ) ), pointMask );
 		}
 
 		{

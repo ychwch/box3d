@@ -54,6 +54,12 @@ B3_API float b3GetLengthUnitsPerMeter( void );
 /// enough to be washed away by weights that hit 1.
 #define B3_MIN_FRICTION_WEIGHT ( 1e-10f )
 
+/// m31: the least lever arm a contact point gives twist friction, standing in for the radius of its contact
+/// patch. Without it a point has none, and a sphere held between two others spins up about the line through its
+/// contacts under the solver's leftover friction torque: neither point moves, so friction never sees the spin.
+/// In meters.
+#define B3_MIN_TWIST_LEVER_ARM ( B3_LINEAR_SLOP )
+
 /// The distance between shapes where they are considered overlapped. This is needed
 /// because GJK may return small positive values for overlapped shapes in degenerate
 /// configurations.

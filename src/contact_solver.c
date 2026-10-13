@@ -251,7 +251,7 @@ void b3PrepareContacts_Mesh( b3SolverBlock block, b3StepContext* context )
 				for ( int pointIndex = 0; pointIndex < pointCount; ++pointIndex )
 				{
 					b3ManifoldConstraintPoint* cp = constraint->points + pointIndex;
-					cp->leverArm = b3Distance( cp->rA, centerA );
+					cp->leverArm = b3MaxFloat( b3Distance( cp->rA, centerA ), B3_MIN_TWIST_LEVER_ARM );
 				}
 
 				b3Vec3 rtA1 = b3Cross( centerA, tangent1 );
