@@ -346,6 +346,7 @@ typedef struct b3JointSim
 		b3WeldJoint weldJoint;
 		b3WheelJoint wheelJoint;
 		b3DirectionalContactJoint directionalContactJoint;
+		b3SuspensionJoint suspensionJoint;
 	};
 } b3JointSim;
 

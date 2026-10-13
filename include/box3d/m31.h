@@ -78,7 +78,13 @@ B3_API bool b3SubStep_HasContact( const b3SubStepContext* context, b3JointId joi
 /// The friction coefficients that bound the two friction rows are set per step from outside (a slip
 /// curve, an edge-hold law, a constant), so the joint holds stick exactly at low speed.
 /// localFrameA is the suspension hard point: x is the wheel forward direction at zero steer, y is up
-/// (the suspension extends along -y), z is the axle. localFrameB is unused.
+/// (the suspension extends along -y), z is the axle. localFrameB's origin is the contact point, set by SetContact
+/// and SetInput.
+///
+/// Tire mode (radialSpring): body A is the wheel's unsprung body and the hard point is the wheel centre. The spring
+/// row is the tire's radial spring, measured along the contact normal: radius is the unloaded radius, the rest
+/// length is 0, and minLength (negative) is the deflection at which the rim strikes. The spin rolls on the
+/// effective radius, radius minus a third of the deflection.
 typedef struct b3DirectionalContactJointDef
 {
 	/// Base joint definition. bodyIdA is the carrier, bodyIdB the ground body.
@@ -100,6 +106,9 @@ typedef struct b3DirectionalContactJointDef
 
 	/// Rotational inertia of the spin degree of freedom (kg m^2)
 	float spinInertia;
+
+	/// Tire mode: the spring row is the tire's radial spring along the contact normal.
+	bool radialSpring;
 } b3DirectionalContactJointDef;
 
 /// Per-step state of a directional contact joint, for telemetry and the vehicle layer.
@@ -184,6 +193,53 @@ B3_API void b3SubStep_SetSpring( b3SubStepContext* context, b3JointId jointId, f
 /// Friction coefficients and external normal force (N) for the coming sub-step.
 B3_API void b3SubStep_SetFriction( b3SubStepContext* context, b3JointId jointId, float longitudinal, float lateral );
 B3_API void b3SubStep_SetNormalForce( b3SubStepContext* context, b3JointId jointId, float normalForce );
+
+/// Suspension joint: a chassis (body A) and an unsprung body (body B), a wheel hub or a solid axle.
+/// Frame A is the mount: travel along y, forward x, axle z. Frame B is the matching point on the unsprung body.
+/// - Independent wheel: only travel along y is free.
+/// - Solid axle: travel and roll about x are free; two spring seats sit at -/+ seatOffset along z.
+/// Travel is positive in compression. Each seat's spring pushes the unsprung body down by
+/// preload + stiffness * travel, with bump damping while compressing and rebound damping while extending, and
+/// stops at the travel limits.
+typedef struct b3SuspensionJointDef
+{
+	b3JointDef base;
+
+	/// Spring stiffness per seat (N/m)
+	float stiffness;
+
+	/// Damping per seat (N s/m), compressing and extending
+	float bumpDamping;
+	float reboundDamping;
+
+	/// Spring force at zero travel (N), per seat; seat 0 is at -seatOffset
+	float preload[2];
+
+	/// Travel limits (m): lowerTravel, negative, at full droop; upperTravel at the bump stop
+	float lowerTravel;
+	float upperTravel;
+
+	/// Half the spring track (m), solid axles only
+	float seatOffset;
+
+	/// Roll about x is free and the axle sits on two seats
+	bool solidAxle;
+} b3SuspensionJointDef;
+
+B3_API b3SuspensionJointDef b3DefaultSuspensionJointDef( void );
+B3_API b3JointId b3CreateSuspensionJoint( b3WorldId worldId, const b3SuspensionJointDef* def );
+B3_API void b3SuspensionJoint_SetSpring( b3JointId jointId, float stiffness, float bumpDamping, float reboundDamping );
+B3_API void b3SuspensionJoint_SetPreload( b3JointId jointId, float seat0, float seat1 );
+B3_API void b3SuspensionJoint_SetTravelLimits( b3JointId jointId, float lower, float upper );
+
+/// Travel of a seat (m, positive in compression), from the bodies' current transforms
+B3_API float b3SuspensionJoint_GetTravel( b3JointId jointId, int seat );
+
+/// Spring and stop force of a seat in the last sub-step (N, positive pushing the unsprung body down)
+B3_API float b3SuspensionJoint_GetSpringForce( b3JointId jointId, int seat );
+
+/// Roll of a solid axle relative to the chassis (rad); zero for an independent wheel
+B3_API float b3SuspensionJoint_GetRoll( b3JointId jointId );
 
 #ifdef __cplusplus
 }

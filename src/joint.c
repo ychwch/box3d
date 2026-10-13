@@ -1150,6 +1150,11 @@ void b3GetJointReaction( b3World* world, b3JointSim* sim, float invTimeStep, flo
 			linearImpulse = b3GetDirectionalContactJointImpulse( sim );
 			break;
 
+		case b3_suspensionJoint:
+			linearImpulse = b3GetSuspensionJointLinearImpulse( sim );
+			angularImpulse = b3GetSuspensionJointAngularImpulse( sim );
+			break;
+
 		default:
 			break;
 	}
@@ -1194,6 +1199,9 @@ static b3Vec3 b3GetJointConstraintForce( b3World* world, b3Joint* joint )
 		case b3_directionalContactJoint:
 			return b3GetDirectionalContactJointForce( world, base );
 
+		case b3_suspensionJoint:
+			return b3GetSuspensionJointForce( world, base );
+
 		default:
 			B3_ASSERT( false );
 			return b3Vec3_zero;
@@ -1236,6 +1244,9 @@ static b3Vec3 b3GetJointConstraintTorque( b3World* world, b3Joint* joint )
 		case b3_directionalContactJoint:
 			// The force acts at frame B's origin, the contact point.
 			return b3Vec3_zero;
+
+		case b3_suspensionJoint:
+			return b3GetSuspensionJointTorque( world, base );
 
 		default:
 			B3_ASSERT( false );
@@ -1335,6 +1346,9 @@ float b3Joint_GetLinearSeparation( b3JointId jointId )
 
 		case b3_directionalContactJoint:
 			return 0.0f;
+
+		case b3_suspensionJoint:
+			return b3GetSuspensionJointLinearSeparation( world, base );
 
 		case b3_revoluteJoint:
 			return b3Length( dp );
@@ -1477,6 +1491,9 @@ float b3Joint_GetAngularSeparation( b3JointId jointId )
 		case b3_directionalContactJoint:
 			return 0.0f;
 
+		case b3_suspensionJoint:
+			return b3GetSuspensionJointAngularSeparation( world, base );
+
 		default:
 			B3_ASSERT( false );
 			return 0.0f;
@@ -1569,6 +1586,10 @@ void b3PrepareJoint( b3JointSim* joint, b3StepContext* context )
 			b3PrepareDirectionalContactJoint( joint, context );
 			break;
 
+		case b3_suspensionJoint:
+			b3PrepareSuspensionJoint( joint, context );
+			break;
+
 		default:
 			B3_ASSERT( false );
 	}
@@ -1615,6 +1636,10 @@ void b3WarmStartJoint( b3JointSim* joint, b3StepContext* context )
 
 		case b3_directionalContactJoint:
 			b3WarmStartDirectionalContactJoint( joint, context );
+			break;
+
+		case b3_suspensionJoint:
+			b3WarmStartSuspensionJoint( joint, context );
 			break;
 
 		default:
@@ -1665,6 +1690,10 @@ void b3SolveJoint( b3JointSim* joint, b3StepContext* context, bool useBias )
 
 		case b3_directionalContactJoint:
 			b3SolveDirectionalContactJoint( joint, context, useBias );
+			break;
+
+		case b3_suspensionJoint:
+			b3SolveSuspensionJoint( joint, context, useBias );
 			break;
 
 		default:
@@ -1804,6 +1833,10 @@ void b3DrawJoint( b3DebugDraw* draw, b3World* world, b3Joint* joint )
 
 		case b3_wheelJoint:
 			b3DrawWheelJoint( draw, jointSim, transformA, transformB, scale );
+			break;
+
+		case b3_suspensionJoint:
+			b3DrawSuspensionJoint( draw, jointSim, transformA, transformB, scale );
 			break;
 
 		default:

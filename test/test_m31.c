@@ -12,6 +12,7 @@
 #include "box3d/m31.h"
 
 #include <limits.h>
+#include <math.h>
 #include <setjmp.h>
 #include <stdlib.h>
 
@@ -484,6 +485,354 @@ static int ContactJointMovesBetweenStaticAndDynamicGround( void )
 	return 0;
 }
 
+// ---- Suspension joint -------------------------------------------------------------------------------------------------
+
+#define SPRUNG_MASS 400.0f
+#define SPRING_RATE 40000.0f
+#define SEAT_OFFSET 0.6f
+#define STEP_DT ( 1.0f / 60.0f )
+#define SUB_STEPS 4
+
+typedef struct Quarter
+{
+	b3WorldId worldId;
+	b3BodyId mountId; // static: the unsprung side held still
+	b3BodyId sprungId;
+	b3JointId jointId;
+} Quarter;
+
+// A sprung box (body A) on a static unsprung mount (body B), joined at the box's origin; gravity along -y.
+static Quarter CreateQuarter( bool solidAxle, float preload, float bumpDamping, float reboundDamping )
+{
+	Quarter q = { 0 };
+	b3WorldDef worldDef = b3DefaultWorldDef();
+	worldDef.gravity = ( b3Vec3 ){ 0.0f, -GRAVITY, 0.0f };
+	worldDef.enableSleep = false;
+	q.worldId = b3CreateWorld( &worldDef );
+
+	b3BodyDef mountDef = b3DefaultBodyDef();
+	q.mountId = b3CreateBody( q.worldId, &mountDef );
+
+	b3BodyDef bodyDef = b3DefaultBodyDef();
+	bodyDef.type = b3_dynamicBody;
+	q.sprungId = b3CreateBody( q.worldId, &bodyDef );
+	b3BoxHull box = b3MakeBoxHull( 1.0f, 0.2f, 1.0f );
+	b3ShapeDef shapeDef = b3DefaultShapeDef();
+	shapeDef.density = SPRUNG_MASS / ( 2.0f * 0.4f * 2.0f );
+	shapeDef.filter.maskBits = 0;
+	b3CreateHullShape( q.sprungId, &shapeDef, &box.base );
+
+	b3SuspensionJointDef def = b3DefaultSuspensionJointDef();
+	def.base.bodyIdA = q.sprungId;
+	def.base.bodyIdB = q.mountId;
+	def.stiffness = SPRING_RATE;
+	def.bumpDamping = bumpDamping;
+	def.reboundDamping = reboundDamping;
+	def.preload[0] = preload;
+	def.preload[1] = preload;
+	def.lowerTravel = -0.5f;
+	def.upperTravel = 0.5f;
+	def.solidAxle = solidAxle;
+	def.seatOffset = SEAT_OFFSET;
+	q.jointId = b3CreateSuspensionJoint( q.worldId, &def );
+	return q;
+}
+
+static void StepQuarter( Quarter* q, int steps )
+{
+	for ( int i = 0; i < steps; ++i )
+	{
+		b3World_Step( q->worldId, STEP_DT, SUB_STEPS );
+	}
+}
+
+static int SuspensionSagsByWeightOverRate( void )
+{
+	float weight = SPRUNG_MASS * GRAVITY;
+	Quarter q = CreateQuarter( false, 0.0f, 8000.0f, 8000.0f );
+	StepQuarter( &q, 300 );
+	ENSURE_SMALL( b3SuspensionJoint_GetTravel( q.jointId, 0 ) - weight / SPRING_RATE, 0.002f * weight / SPRING_RATE );
+	ENSURE_SMALL( b3SuspensionJoint_GetSpringForce( q.jointId, 0 ) - weight, 0.002f * weight );
+	b3DestroyWorld( q.worldId );
+
+	// A preload of the weight holds it at the design position.
+	q = CreateQuarter( false, weight, 8000.0f, 8000.0f );
+	StepQuarter( &q, 300 );
+	ENSURE_SMALL( b3SuspensionJoint_GetTravel( q.jointId, 0 ), 1.0e-4f );
+	b3DestroyWorld( q.worldId );
+	return 0;
+}
+
+// Undamped from the design position, the mass oscillates at sqrt(k / m); damped, it decays at the ratio the physical
+// damping gives.
+static int SuspensionSpringAndDampingAreInPhysicalUnits( void )
+{
+	float omega = sqrtf( SPRING_RATE / SPRUNG_MASS );
+	float period = 2.0f * B3_PI / omega;
+	Quarter q = CreateQuarter( false, 0.0f, 0.0f, 0.0f );
+	float previous = 0.0f;
+	float upCrossings[3] = { 0 };
+	int crossings = 0;
+	float settle = SPRUNG_MASS * GRAVITY / SPRING_RATE;
+	for ( int i = 1; i < 600 && crossings < 3; ++i )
+	{
+		StepQuarter( &q, 1 );
+		float x = b3SuspensionJoint_GetTravel( q.jointId, 0 ) - settle;
+		if ( previous < 0.0f && x >= 0.0f )
+		{
+			upCrossings[crossings++] = ( (float)i - x / ( x - previous ) ) * STEP_DT;
+		}
+		previous = x;
+	}
+	ENSURE( crossings == 3 );
+	float measured = 0.5f * ( upCrossings[2] - upCrossings[0] );
+	ENSURE_SMALL( measured - period, 0.02f * period );
+	b3DestroyWorld( q.worldId );
+
+	// zeta 0.1: successive peaks fall by exp(-2 pi zeta / sqrt(1 - zeta^2))
+	float zeta = 0.1f;
+	float c = 2.0f * zeta * sqrtf( SPRING_RATE * SPRUNG_MASS );
+	q = CreateQuarter( false, 0.0f, c, c );
+	float peaks[2] = { 0 };
+	int peakCount = 0;
+	float last = 0.0f, lastSlope = 0.0f;
+	for ( int i = 1; i < 600 && peakCount < 2; ++i )
+	{
+		StepQuarter( &q, 1 );
+		float x = b3SuspensionJoint_GetTravel( q.jointId, 0 ) - settle;
+		float slope = x - last;
+		if ( i > 1 && lastSlope > 0.0f && slope <= 0.0f )
+		{
+			peaks[peakCount++] = last;
+		}
+		last = x;
+		lastSlope = slope;
+	}
+	ENSURE( peakCount == 2 );
+	float ratio = peaks[1] / peaks[0];
+	float expected = expf( -2.0f * B3_PI * zeta / sqrtf( 1.0f - zeta * zeta ) );
+	ENSURE_SMALL( ratio - expected, 0.01f * expected );
+	b3DestroyWorld( q.worldId );
+	return 0;
+}
+
+// Bump damping slows the compression stroke only, rebound damping the extension only.
+static int SuspensionDampsEachDirection( void )
+{
+	float deepest[2];
+	for ( int run = 0; run < 2; ++run )
+	{
+		float c = 2.0f * sqrtf( SPRING_RATE * SPRUNG_MASS );
+		Quarter q = CreateQuarter( false, 0.0f, run == 0 ? c : 0.0f, run == 0 ? 0.0f : c );
+		deepest[run] = 0.0f;
+		for ( int i = 0; i < 120; ++i )
+		{
+			StepQuarter( &q, 1 );
+			deepest[run] = b3MaxFloat( deepest[run], b3SuspensionJoint_GetTravel( q.jointId, 0 ) );
+		}
+		b3DestroyWorld( q.worldId );
+	}
+	float settle = SPRUNG_MASS * GRAVITY / SPRING_RATE;
+	// Critically damped in compression it barely overshoots; undamped in compression it reaches twice the sag.
+	ENSURE( deepest[0] < 1.1f * settle );
+	ENSURE( deepest[1] > 1.8f * settle );
+	return 0;
+}
+
+// Pushed sideways and twisted, an independent wheel's joint holds every direction but travel.
+static int SuspensionLocksTheOtherDirections( void )
+{
+	Quarter q = CreateQuarter( false, SPRUNG_MASS * GRAVITY, 8000.0f, 8000.0f );
+	for ( int i = 0; i < 60; ++i )
+	{
+		b3Body_ApplyForceToCenter( q.sprungId, ( b3Vec3 ){ 2000.0f, 0.0f, 2000.0f }, true );
+		b3Body_ApplyTorque( q.sprungId, ( b3Vec3 ){ 2000.0f, 2000.0f, 2000.0f }, true );
+		StepQuarter( &q, 1 );
+	}
+	b3Pos p = b3Body_GetPosition( q.sprungId );
+	b3Quat r = b3Body_GetRotation( q.sprungId );
+	ENSURE_SMALL( (float)p.x, 2.0e-3f );
+	ENSURE_SMALL( (float)p.z, 2.0e-3f );
+	ENSURE( b3Length( r.v ) < 1.0e-3f );
+	b3DestroyWorld( q.worldId );
+	return 0;
+}
+
+// A solid axle rolls against its two seats: roll stiffness 2 k s^2. Yaw, pitch and sideways motion stay locked.
+static int SolidAxleRollsOnItsSeats( void )
+{
+	float rollTorque = 2000.0f;
+	Quarter q = CreateQuarter( true, 0.5f * SPRUNG_MASS * GRAVITY, 4000.0f, 4000.0f );
+	for ( int i = 0; i < 300; ++i )
+	{
+		b3Body_ApplyTorque( q.sprungId, ( b3Vec3 ){ rollTorque, 0.0f, 0.0f }, true );
+		StepQuarter( &q, 1 );
+	}
+	float expected = rollTorque / ( 2.0f * SPRING_RATE * SEAT_OFFSET * SEAT_OFFSET );
+	float roll = b3AbsFloat( b3SuspensionJoint_GetRoll( q.jointId ) );
+	ENSURE_SMALL( roll - expected, 0.02f * expected );
+	float seat0 = b3SuspensionJoint_GetTravel( q.jointId, 0 );
+	float seat1 = b3SuspensionJoint_GetTravel( q.jointId, 1 );
+	ENSURE( seat0 * seat1 < 0.0f );
+
+	for ( int i = 0; i < 60; ++i )
+	{
+		b3Body_ApplyTorque( q.sprungId, ( b3Vec3 ){ rollTorque, 3000.0f, 3000.0f }, true );
+		b3Body_ApplyForceToCenter( q.sprungId, ( b3Vec3 ){ 3000.0f, 0.0f, 3000.0f }, true );
+		StepQuarter( &q, 1 );
+	}
+	b3Pos p = b3Body_GetPosition( q.sprungId );
+	b3Vec3 forward = b3RotateVector( b3Body_GetRotation( q.sprungId ), b3Vec3_axisX );
+	ENSURE_SMALL( (float)p.x, 2.0e-3f );
+	ENSURE_SMALL( (float)p.z, 2.0e-3f );
+	ENSURE( forward.x > 1.0f - 1.0e-5f );
+	b3DestroyWorld( q.worldId );
+	return 0;
+}
+
+// ---- Tire mode --------------------------------------------------------------------------------------------------------
+
+#define HUB_MASS 200.0f
+#define TIRE_RATE 200000.0f
+#define TIRE_RADIUS 0.5f
+#define RIM_DEFLECTION 0.08f
+
+typedef struct TireRig
+{
+	b3WorldId worldId;
+	b3BodyId groundId;
+	b3BodyId hubId;
+	b3JointId tireId;
+} TireRig;
+
+// A hub (a box, no collision) on a tire-mode joint over a static ground at y = 0, the tire touching unloaded.
+static TireRig CreateTireRig( float hubMass )
+{
+	TireRig t = { 0 };
+	b3WorldDef worldDef = b3DefaultWorldDef();
+	worldDef.gravity = ( b3Vec3 ){ 0.0f, -GRAVITY, 0.0f };
+	worldDef.enableSleep = false;
+	t.worldId = b3CreateWorld( &worldDef );
+
+	b3BodyDef groundDef = b3DefaultBodyDef();
+	groundDef.position = ( b3Pos ){ 0.0f, -0.5f, 0.0f };
+	t.groundId = b3CreateBody( t.worldId, &groundDef );
+	b3BoxHull slab = b3MakeBoxHull( 50.0f, 0.5f, 50.0f );
+	b3ShapeDef shapeDef = b3DefaultShapeDef();
+	b3CreateHullShape( t.groundId, &shapeDef, &slab.base );
+
+	b3BodyDef hubDef = b3DefaultBodyDef();
+	hubDef.type = b3_dynamicBody;
+	hubDef.position = ( b3Pos ){ 0.0f, TIRE_RADIUS, 0.0f };
+	hubDef.motionLocks.angularX = true;
+	hubDef.motionLocks.angularY = true;
+	hubDef.motionLocks.angularZ = true;
+	t.hubId = b3CreateBody( t.worldId, &hubDef );
+	b3BoxHull box = b3MakeBoxHull( 0.2f, 0.2f, 0.2f );
+	b3ShapeDef hubShape = b3DefaultShapeDef();
+	hubShape.density = hubMass / ( 0.4f * 0.4f * 0.4f );
+	hubShape.filter.maskBits = 0;
+	b3CreateHullShape( t.hubId, &hubShape, &box.base );
+
+	b3DirectionalContactJointDef def = b3DefaultDirectionalContactJointDef();
+	def.base.bodyIdA = t.hubId;
+	def.base.bodyIdB = t.groundId;
+	def.radius = TIRE_RADIUS;
+	def.radialSpring = true;
+	def.minLength = -RIM_DEFLECTION;
+	def.maxLength = 0.0f;
+	def.stiffness = TIRE_RATE;
+	def.damping = 2000.0f;
+	def.spinInertia = 2.0f;
+	t.tireId = b3CreateDirectionalContactJoint( t.worldId, &def );
+	return t;
+}
+
+static void ProbeTire( TireRig* t, float brake )
+{
+	b3Pos centre = b3Body_GetPosition( t->hubId );
+	b3DirectionalContactInput input = { 0 };
+	input.hasContact = true;
+	input.point = ( b3Pos ){ centre.x, 0.0f, centre.z };
+	input.normal = b3Vec3_axisY;
+	input.longitudinalFriction = 1.0f;
+	input.lateralFriction = 1.0f;
+	input.brakeTorque = brake;
+	b3DirectionalContactJoint_SetInput( t->tireId, &input );
+}
+
+static int TireDeflectsAndRollsOnTheEffectiveRadius( void )
+{
+	TireRig t = CreateTireRig( HUB_MASS );
+	for ( int i = 0; i < 240; ++i )
+	{
+		ProbeTire( &t, 0.0f );
+		b3World_Step( t.worldId, STEP_DT, SUB_STEPS );
+	}
+	float deflection = HUB_MASS * GRAVITY / TIRE_RATE;
+	b3DirectionalContactState state = b3DirectionalContactJoint_GetState( t.tireId );
+	ENSURE_SMALL( state.suspensionLength + deflection, 0.01f * deflection );
+	ENSURE_SMALL( (float)b3Body_GetPosition( t.hubId ).y - ( TIRE_RADIUS - deflection ), 0.01f * deflection );
+
+	// Rolling free at 5 m/s, the spin matches the speed over the effective radius.
+	b3Body_SetLinearVelocity( t.hubId, ( b3Vec3 ){ 5.0f, 0.0f, 0.0f } );
+	b3DirectionalContactJoint_SetSpin( t.tireId, 5.0f / ( TIRE_RADIUS - deflection / 3.0f ) );
+	for ( int i = 0; i < 60; ++i )
+	{
+		ProbeTire( &t, 0.0f );
+		b3World_Step( t.worldId, STEP_DT, SUB_STEPS );
+	}
+	float speed = b3Body_GetLinearVelocity( t.hubId ).x;
+	float spin = b3DirectionalContactJoint_GetSpin( t.tireId );
+	ENSURE_SMALL( spin * ( TIRE_RADIUS - deflection / 3.0f ) - speed, 1.0e-3f * speed );
+	b3DestroyWorld( t.worldId );
+
+	// Loaded past the sidewall, the rim stops the deflection.
+	t = CreateTireRig( 4.0f * TIRE_RATE * RIM_DEFLECTION / GRAVITY );
+	for ( int i = 0; i < 240; ++i )
+	{
+		ProbeTire( &t, 0.0f );
+		b3World_Step( t.worldId, STEP_DT, SUB_STEPS );
+	}
+	state = b3DirectionalContactJoint_GetState( t.tireId );
+	ENSURE_SMALL( state.suspensionLength + RIM_DEFLECTION, 0.05f * RIM_DEFLECTION );
+	b3DestroyWorld( t.worldId );
+	return 0;
+}
+
+// A hub bouncing on its tire decays at the tire's damping ratio: omega h is 0.13 here, where Box3D's soft row alone
+// damps at zeta 0.07.
+static int TireHopDecaysAtItsOwnDamping( void )
+{
+	float zeta = 0.15f;
+	TireRig t = CreateTireRig( HUB_MASS );
+	b3DirectionalContactJoint_SetSpring( t.tireId, TIRE_RATE, 2.0f * zeta * sqrtf( TIRE_RATE * HUB_MASS ), 0.0f );
+	float settle = HUB_MASS * GRAVITY / TIRE_RATE;
+	// From twice the static deflection the tire never leaves the ground.
+	b3Body_SetTransform( t.hubId, ( b3Pos ){ 0.0f, TIRE_RADIUS - 2.0f * settle, 0.0f }, b3Quat_identity );
+	float peaks[2] = { 0 };
+	int peakCount = 0;
+	float last = 0.0f, lastSlope = 0.0f;
+	for ( int i = 1; i < 600 && peakCount < 2; ++i )
+	{
+		ProbeTire( &t, 0.0f );
+		b3World_Step( t.worldId, STEP_DT / SUB_STEPS, 1 );
+		float x = -b3DirectionalContactJoint_GetState( t.tireId ).suspensionLength - settle;
+		float slope = x - last;
+		if ( i > 1 && lastSlope > 0.0f && slope <= 0.0f )
+		{
+			peaks[peakCount++] = last;
+		}
+		last = x;
+		lastSlope = slope;
+	}
+	ENSURE( peakCount == 2 );
+	float expected = expf( -2.0f * B3_PI * zeta / sqrtf( 1.0f - zeta * zeta ) );
+	ENSURE_SMALL( peaks[1] / peaks[0] - expected, 0.03f * expected );
+	b3DestroyWorld( t.worldId );
+	return 0;
+}
+
 int M31Test( void )
 {
 	RUN_SUBTEST( CapacityGrowsInSixtyFourBits );
@@ -493,5 +842,12 @@ int M31Test( void )
 	RUN_SUBTEST( ContactJointReportsTheGroundForce );
 	RUN_SUBTEST( ContactJointKeepsItsIdAcrossGrounds );
 	RUN_SUBTEST( ContactJointMovesBetweenStaticAndDynamicGround );
+	RUN_SUBTEST( SuspensionSagsByWeightOverRate );
+	RUN_SUBTEST( SuspensionSpringAndDampingAreInPhysicalUnits );
+	RUN_SUBTEST( SuspensionDampsEachDirection );
+	RUN_SUBTEST( SuspensionLocksTheOtherDirections );
+	RUN_SUBTEST( SolidAxleRollsOnItsSeats );
+	RUN_SUBTEST( TireDeflectsAndRollsOnTheEffectiveRadius );
+	RUN_SUBTEST( TireHopDecaysAtItsOwnDamping );
 	return 0;
 }

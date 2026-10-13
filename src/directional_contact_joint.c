@@ -66,6 +66,8 @@ b3JointId b3CreateDirectionalContactJoint( b3WorldId worldId, const b3Directiona
 	joint->stiffness = def->stiffness;
 	joint->damping = def->damping;
 	joint->invSpinInertia = def->spinInertia > 0.0f ? 1.0f / def->spinInertia : 0.0f;
+	joint->radialSpring = def->radialSpring;
+	joint->rollingRadius = def->radius;
 	joint->longitudinalFriction = 1.0f;
 	joint->lateralFriction = 1.0f;
 	joint->localNormalB = b3Vec3_axisY;
@@ -138,15 +140,7 @@ void b3DirectionalContactJoint_SetSpring( b3JointId jointId, float stiffness, fl
 
 b3Softness b3DirectionalSpringSoftness( const b3DirectionalContactJoint* joint, float h )
 {
-	float k = joint->stiffness / joint->springCos;
-	float c = joint->damping / joint->springCos;
-	if ( k > 0.0f && joint->normalMass > 0.0f )
-	{
-		float omega = sqrtf( k / joint->normalMass );
-		float zeta = 0.5f * c / sqrtf( k * joint->normalMass );
-		return b3MakeSoft( omega / ( 2.0f * B3_PI ), zeta, h );
-	}
-	return (b3Softness){ 0.0f, 0.0f, 0.0f };
+	return b3MakePhysicalSpring( joint->stiffness / joint->springCos, joint->damping / joint->springCos, joint->normalMass, h );
 }
 
 void b3DirectionalContactJoint_ClearContact( b3JointId jointId )
@@ -302,7 +296,17 @@ void b3PrepareDirectionalContactJoint( b3JointSim* base, b3StepContext* context 
 	b3Vec3 n = b3RotateVector( simB->transform.q, joint->localNormalB );
 	b3Vec3 suspensionDir = b3Neg( up );
 
-	joint->length0 = b3Dot( b3SubPos( contact, hardPoint ), suspensionDir ) - joint->radius;
+	if ( joint->radialSpring )
+	{
+		// Tire: deflection along the contact normal from the wheel centre, rolling on the effective radius.
+		joint->length0 = b3Dot( b3SubPos( hardPoint, contact ), n ) - joint->radius;
+		joint->rollingRadius = joint->radius + b3MinFloat( joint->length0, 0.0f ) / 3.0f;
+	}
+	else
+	{
+		joint->length0 = b3Dot( b3SubPos( contact, hardPoint ), suspensionDir ) - joint->radius;
+		joint->rollingRadius = joint->radius;
+	}
 	joint->normal = n;
 
 	// Longitudinal axis in the plane of the contact normal and the wheel's forward direction.
@@ -327,11 +331,11 @@ void b3PrepareDirectionalContactJoint( b3JointSim* base, b3StepContext* context 
 	joint->lateralMass = b3RowMass( mA, mB, iA, iB, joint->rA, joint->rB, joint->lateralAxis, 0.0f );
 	joint->longitudinalMassLocked = b3RowMass( mA, mB, iA, iB, joint->rA, joint->rB, lon, 0.0f );
 	joint->longitudinalMassFree =
-		b3RowMass( mA, mB, iA, iB, joint->rA, joint->rB, lon, joint->radius * joint->radius * joint->invSpinInertia );
+		b3RowMass( mA, mB, iA, iB, joint->rA, joint->rB, lon, joint->rollingRadius * joint->rollingRadius * joint->invSpinInertia );
 
 	// Spring along the contact normal, stiffness and damping divided by the angle between the suspension and
 	// the normal so the component along the suspension is the authored spring.
-	joint->springCos = b3MaxFloat( 0.1f, -b3Dot( suspensionDir, n ) );
+	joint->springCos = joint->radialSpring ? 1.0f : b3MaxFloat( 0.1f, -b3Dot( suspensionDir, n ) );
 	joint->springSoftness = b3DirectionalSpringSoftness( joint, context->h );
 
 	if ( context->enableWarmStarting == false )
@@ -384,7 +388,7 @@ void b3WarmStartDirectionalContactJoint( b3JointSim* base, b3StepContext* contex
 	stateB->linearVelocity = b3MulSub( stateB->linearVelocity, base->invMassB, P );
 	stateB->angularVelocity = b3Sub( stateB->angularVelocity, b3MulMV( base->invIB, b3Cross( f.rB, P ) ) );
 
-	joint->spin += joint->invSpinInertia * ( joint->brakeImpulse - joint->radius * joint->longitudinalImpulse );
+	joint->spin += joint->invSpinInertia * ( joint->brakeImpulse - joint->rollingRadius * joint->longitudinalImpulse );
 }
 
 void b3SolveDirectionalContactJoint( b3JointSim* base, b3StepContext* context, bool useBias )
@@ -418,8 +422,8 @@ void b3SolveDirectionalContactJoint( b3JointSim* base, b3StepContext* context, b
 	b3Vec3 snA = b3Cross( f.rA, f.n );
 	b3Vec3 snB = b3Cross( f.rB, f.n );
 
-	// Suspension spring. This is a real spring and is applied during relax as well.
-	if ( joint->springSoftness.massScale > 0.0f )
+	// Suspension spring: once per sub-step, in the solve pass (b3MakePhysicalSpring).
+	if ( joint->springSoftness.massScale > 0.0f && useBias )
 	{
 		float C = length - joint->restLength;
 		float cdot = b3Dot( f.n, b3Sub( vA, vB ) ) + b3Dot( snA, wA ) - b3Dot( snB, wB );
@@ -477,7 +481,7 @@ void b3SolveDirectionalContactJoint( b3JointSim* base, b3StepContext* context, b
 		float maxL = joint->longitudinalFriction * normalImpulse;
 		float maxB = joint->brakeTorque * context->h;
 		float invI = joint->invSpinInertia;
-		float r = joint->radius;
+		float r = joint->rollingRadius;
 
 		float oldL = joint->longitudinalImpulse;
 		float newL;
