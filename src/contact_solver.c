@@ -268,6 +268,7 @@ void b3PrepareContacts_Mesh( b3SolverBlock block, b3StepContext* context )
 					constraint->tangentMass = b3Invert2( k );
 					constraint->frictionImpulse.x = warmStartScale * b3Dot( manifold->frictionImpulse, tangent1 );
 					constraint->frictionImpulse.y = warmStartScale * b3Dot( manifold->frictionImpulse, tangent2 );
+					constraint->totalFrictionImpulse = (b3Vec2){ 0.0f, 0.0f };
 				}
 
 				{
@@ -663,6 +664,7 @@ void b3SolveContacts_Mesh( b3SolverBlock block, b3StepContext* context )
 				}
 				deltaImpulse = b3Sub2( newImpulse, constraint->frictionImpulse );
 				constraint->frictionImpulse = newImpulse;
+				constraint->totalFrictionImpulse = b3Add2( constraint->totalFrictionImpulse, newImpulse );
 
 				// Apply delta impulse
 				b3Vec3 P = b3Blend2( deltaImpulse.x, tangent1, deltaImpulse.y, tangent2 );
@@ -877,6 +879,8 @@ void b3StoreImpulses_Mesh( b3SolverBlock block, b3StepContext* context, int work
 				manifold->twistImpulse = constraint->twistImpulse;
 				manifold->frictionImpulse = b3Blend2( constraint->frictionImpulse.x, constraint->tangent1,
 													  constraint->frictionImpulse.y, constraint->tangent2 );
+				manifold->totalFrictionImpulse = b3Blend2( constraint->totalFrictionImpulse.x, constraint->tangent1,
+														   constraint->totalFrictionImpulse.y, constraint->tangent2 );
 				manifold->rollingImpulse = constraint->rollingImpulse;
 
 				int count = constraint->pointCount;

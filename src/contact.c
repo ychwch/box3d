@@ -574,6 +574,7 @@ static bool b3ComputeConvexManifold( b3World* world, int workerIndex, b3Contact*
 	b3Manifold* manifold = contact->manifolds;
 	B3_ASSERT( 0 < geomManifold.pointCount && geomManifold.pointCount <= B3_MAX_MANIFOLD_POINTS );
 	manifold->pointCount = geomManifold.pointCount;
+	manifold->totalFrictionImpulse = b3Vec3_zero;
 
 	b3Matrix3 matrixA = b3MakeMatrixFromQuat( xfA.q );
 	manifold->normal = b3MulMV( matrixA, geomManifold.normal );

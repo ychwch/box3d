@@ -31,6 +31,8 @@ typedef struct b3ManifoldConstraint
 	float twistImpulse;
 	b3Matrix2 tangentMass;
 	b3Vec2 frictionImpulse;
+	// m31: the step's friction impulse, in the tangents' basis
+	b3Vec2 totalFrictionImpulse;
 	b3Vec3 rollingImpulse;
 	float tangentVelocity1;
 	float tangentVelocity2;

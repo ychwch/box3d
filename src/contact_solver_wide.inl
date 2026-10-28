@@ -146,6 +146,8 @@ typedef struct B3_WIDE( b3ContactManifold )
 	b3FloatW twistImpulse;
 	b3SymMatrix2W tangentMass;
 	b3Vec2W frictionImpulse;
+	// m31: the step's friction impulse, in the tangents' basis
+	b3Vec2W totalFrictionImpulse;
 	b3Vec3W rollingImpulse;
 	b3FloatW rollingMask;
 	b3FloatW tangentVelocity1;
@@ -728,6 +730,7 @@ B3_FORCE_INLINE bool b3PrepareConstraintW( b3ContactConstraintWide* c, b3Contact
 		cm->rollingImpulse.Z = b3BlendW( zeroW, b3MulW( warmStartScale, rollingImpulse.Z ), cm->rollingMask );
 		cm->frictionImpulse.x = b3MulW( warmStartScale, b3DotW( frictionImpulse, tangent1 ) );
 		cm->frictionImpulse.y = b3MulW( warmStartScale, b3DotW( frictionImpulse, tangent2 ) );
+		cm->totalFrictionImpulse = (b3Vec2W){ zeroW, zeroW };
 
 		b3FloatW pointCountW = b3IntsToFloatW( pointCounts );
 
@@ -1355,6 +1358,7 @@ B3_FORCE_INLINE void b3SolveContactsW( b3SolverBlock block, b3StepContext* conte
 				};
 
 				cm->frictionImpulse = newImpulse;
+				cm->totalFrictionImpulse = b3AddV2W( cm->totalFrictionImpulse, newImpulse );
 
 				// Apply delta impulse
 				b3Vec3W P = b3AddVW( b3MulSVW( deltaImpulse.x, tangent1 ), b3MulSVW( deltaImpulse.y, tangent2 ) );
@@ -1504,6 +1508,8 @@ B3_FORCE_INLINE void b3StoreImpulsesW( b3SolverBlock block, b3StepContext* conte
 
 				const float* frictionImpulse1 = (const float*)&cm->frictionImpulse.x;
 				const float* frictionImpulse2 = (const float*)&cm->frictionImpulse.y;
+				const float* totalFrictionImpulse1 = (const float*)&cm->totalFrictionImpulse.x;
+				const float* totalFrictionImpulse2 = (const float*)&cm->totalFrictionImpulse.y;
 				const float* tangent1X = (const float*)&cm->tangent1.X;
 				const float* tangent1Y = (const float*)&cm->tangent1.Y;
 				const float* tangent1Z = (const float*)&cm->tangent1.Z;
@@ -1521,6 +1527,13 @@ B3_FORCE_INLINE void b3StoreImpulsesW( b3SolverBlock block, b3StepContext* conte
 					f1 * tangent1X[lane] + f2 * tangent2X[lane],
 					f1 * tangent1Y[lane] + f2 * tangent2Y[lane],
 					f1 * tangent1Z[lane] + f2 * tangent2Z[lane],
+				};
+				float t1 = totalFrictionImpulse1[lane];
+				float t2 = totalFrictionImpulse2[lane];
+				m->totalFrictionImpulse = (b3Vec3){
+					t1 * tangent1X[lane] + t2 * tangent2X[lane],
+					t1 * tangent1Y[lane] + t2 * tangent2Y[lane],
+					t1 * tangent1Z[lane] + t2 * tangent2Z[lane],
 				};
 				m->twistImpulse = twistImpulse[lane];
 				m->rollingImpulse = (b3Vec3){

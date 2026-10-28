@@ -1186,6 +1186,12 @@ typedef struct b3ContactHitEvent
 	/// The speed the shapes are approaching. Always positive. Typically in meters per second.
 	float approachSpeed;
 
+	/// m31: the step's normal impulse over every point of the contact, the sum of their totalNormalImpulse.
+	float totalNormalImpulse;
+
+	/// m31: the points that took a normal impulse this step.
+	int pointCount;
+
 	/// User material on shape A
 	uint64_t userMaterialIdA;
 
@@ -2721,6 +2727,11 @@ typedef struct b3Manifold
 
 	/// The number of contact points, will be 0 to 4
 	int pointCount;
+
+	/// m31: the step's central friction impulse, summed as each point's totalNormalImpulse is: the final sub-step's
+	/// frictionImpulse is zero on the steps a rolling sphere's final normal impulse is. Last: the wide solver
+	/// gathers the fields from normal to pointCount by offset.
+	b3Vec3 totalFrictionImpulse;
 
 } b3Manifold;
 

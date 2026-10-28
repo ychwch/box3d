@@ -2117,6 +2117,8 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 						{
 							b3ManifoldPoint* mp = manifold->points + p;
 							float approachSpeed = -mp->normalVelocity;
+							event.totalNormalImpulse += mp->totalNormalImpulse;
+							event.pointCount += mp->totalNormalImpulse > 0.0f ? 1 : 0;
 
 							// Need to check total impulse because the point may be speculative and not colliding
 							if ( approachSpeed > event.approachSpeed && mp->totalNormalImpulse > 0.0f )
